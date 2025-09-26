@@ -1312,7 +1312,7 @@ BEGIN
         MIN(Timestamp) as OldestRecord,
         MAX(Timestamp) as NewestRecord,
         AVG(CAST(Quality as float)) as AverageQuality,
-        COUNT(CASE WHEN Quality = 192 THEN 1 END) * 100.0 / COUNT(*) as GoodQualityPercentage
+        COUNT(CASE WHEN Quality = 192 THEN 1 END) * 100.0 / NULLIF(COUNT(*), 0) as GoodQualityPercentage    
     FROM DataHistory
     WHERE Timestamp >= DATEADD(day, -30, GETDATE());
 
