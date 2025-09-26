@@ -9,19 +9,19 @@
 -- - Automated maintenance
 
 -- Create database if it doesn't exist
-IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'PLCTags')
+IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'IndolaktoWWTP')
 BEGIN
-    CREATE DATABASE PLCTags;
-    PRINT 'Database PLCTags created successfully.';
+    CREATE DATABASE IndolaktoWWTP;
+    PRINT 'Database IndolaktoWWTP created successfully.';
 END
 ELSE
 BEGIN
-    PRINT 'Database PLCTags already exists.';
+    PRINT 'Database IndolaktoWWTP already exists.';
 END
 GO
 
--- Use the PLCTags database
-USE PLCTags;
+-- Use the IndolaktoWWTP database
+USE IndolaktoWWTP;
 GO
 
 PRINT '=== Creating Enhanced S7 Database Schema ===';
@@ -2010,7 +2010,7 @@ PRINT '   • Triggers: 3 (Auto-update timestamps and audit logging)';
 PRINT '';
 PRINT '🔧 Connection Details:';
 PRINT '   Server: localhost\SQLEXPRESS';
-PRINT '   Database: PLCTags';
+PRINT '   Database: IndolaktoWWTP';
 PRINT '   Authentication: Windows Authentication (default)';
 PRINT '';
 PRINT '📝 Next Steps:';
