@@ -115,24 +115,6 @@ class EngineeringUnitsUtils {
                 return formatString.replace('{0}', value.toFixed(decimalPlaces));
             } catch (error) {
                 // Fall back to default formatting if custom format fails
-            /**
-     * Apply precision formatting to a value
-     * @param {number} value - Value to format
-     * @param {number} decimalPlaces - Number of decimal places
-     * @param {string} formatString - Optional custom format string
-     * @returns {string} - Formatted value
-     */
-    static formatValue(value, decimalPlaces = 2, formatString = null) {
-        if (value === null || value === undefined || isNaN(value)) {
-            return 'N/A';
-        }
-
-        if (formatString) {
-            // Handle custom format strings (basic implementation)
-            try {
-                return formatString.replace('{0}', value.toFixed(decimalPlaces));
-            } catch (error) {
-                // Fall back to default formatting if custom format fails
                 return value.toFixed(decimalPlaces);
             }
         }
@@ -503,10 +485,284 @@ class EngineeringUnitsUtils {
             }
         };
     }
-}
 
-module.exports = EngineeringUnitsUtils;
+    /**
+     * Apply square root scaling for flow measurements
+     * @param {number} rawValue - Raw PLC value (typically pressure)
+     * @param {object} scaling - Scaling parameters with additional sqrtScaling property
+     * @returns {number} - Square root scaled engineering unit value
+     */
+    static applySqrtScaling(rawValue, scaling) {
+        const linearValue = this.rawToEu(rawValue, scaling);
+        
+        if (linearValue < 0) {
+            return 0; // Flow cannot be negative
+        }
+        
+        return Math.sqrt(linearValue / (scaling.euMax || 100)) * (scaling.euMax || 100);
+    }
+
+    /**
+     * Apply polynomial scaling for non-linear sensors
+     * @param {number} rawValue - Raw PLC value
+     * @param {object} scaling - Scaling parameters
+     * @param {Array} coefficients - Polynomial coefficients [a0, a1, a2, ...] for a0 + a1*x + a2*x^2 + ...
+     * @returns {number} - Polynomial scaled engineering unit value
+     */
+    static applyPolynomialScaling(rawValue, scaling, coefficients) {
+        if (!coefficients || coefficients.length === 0) {
+            return this.rawToEu(rawValue, scaling);
+        }
+
+        // First normalize the raw value to 0-1 range
+        const normalizedValue = (rawValue - scaling.rawMin) / (scaling.rawMax - scaling.rawMin);
+        
+        // Apply polynomial
+        let result = 0;
+        for (let i = 0; i < coefficients.length; i++) {
+            result += coefficients[i] * Math.pow(normalizedValue, i);
+        }
+
+        // Scale to engineering units range
+        return scaling.euMin + result * (scaling.euMax - scaling.euMin);
+    }
+
+    /**
+     * Convert temperature between different units
+     * @param {number} value - Temperature value
+     * @param {string} fromUnit - Source unit ('C', 'F', 'K', 'R')
+     * @param {string} toUnit - Target unit ('C', 'F', 'K', 'R')
+     * @returns {number} - Converted temperature value
+     */
+    static convertTemperature(value, fromUnit, toUnit) {
+        if (fromUnit === toUnit) return value;
+
+        // Convert to Celsius first
+        let celsius;
+        switch (fromUnit.toUpperCase()) {
+            case 'F':
+                celsius = (value - 32) * 5/9;
+                break;
+            case 'K':
+                celsius = value - 273.15;
+                break;
+            case 'R':
+                celsius = (value - 491.67) * 5/9;
+                break;
+            case 'C':
+            default:
+                celsius = value;
+                break;
+        }
+
+        // Convert from Celsius to target unit
+        switch (toUnit.toUpperCase()) {
+            case 'F':
+                return celsius * 9/5 + 32;
+            case 'K':
+                return celsius + 273.15;
+            case 'R':
+                return celsius * 9/5 + 491.67;
+            case 'C':
+            default:
+                return celsius;
+        }
+    }
+
+    /**
+     * Convert pressure between different units
+     * @param {number} value - Pressure value
+     * @param {string} fromUnit - Source unit ('bar', 'psi', 'kPa', 'MPa', 'atm', 'mmHg')
+     * @param {string} toUnit - Target unit
+     * @returns {number} - Converted pressure value
+     */
+    static convertPressure(value, fromUnit, toUnit) {
+        if (fromUnit === toUnit) return value;
+
+        // Conversion factors to Pascal (Pa)
+        const toPA = {
+            'bar': 100000,
+            'psi': 6894.757,
+            'kPa': 1000,
+            'kpa': 1000,
+            'MPa': 1000000,
+            'mpa': 1000000,
+            'atm': 101325,
+            'mmHg': 133.322,
+            'mmhg': 133.322,
+            'Pa': 1,
+            'pa': 1
+        };
+
+        const pascals = value * (toPA[fromUnit] || 1);
+        return pascals / (toPA[toUnit] || 1);
+    }
+
+    /**
+     * Calculate rate of change (derivative) for trending
+     * @param {Array} valueHistory - Array of {value, timestamp} objects
+     * @param {number} windowSize - Number of points to consider
+     * @returns {number} - Rate of change per second
+     */
+    static calculateRateOfChange(valueHistory, windowSize = 5) {
+        if (!valueHistory || valueHistory.length < 2) {
+            return 0;
+        }
+
+        const dataPoints = valueHistory.slice(-windowSize);
+        if (dataPoints.length < 2) {
+            return 0;
+        }
+
+        const firstPoint = dataPoints[0];
+        const lastPoint = dataPoints[dataPoints.length - 1];
+        
+        const deltaValue = lastPoint.value - firstPoint.value;
+        const deltaTime = (new Date(lastPoint.timestamp) - new Date(firstPoint.timestamp)) / 1000; // Convert to seconds
+
+        return deltaTime > 0 ? deltaValue / deltaTime : 0;
+    }
+
+    /**
+     * Apply hysteresis to reduce oscillation around limits
+     * @param {number} currentValue - Current engineering unit value
+     * @param {number} previousState - Previous alarm state (0 = normal, 1 = alarm)
+     * @param {number} alarmLimit - Alarm threshold
+     * @param {number} hysteresis - Hysteresis band (default 2% of limit)
+     * @returns {object} - {state: number, triggered: boolean, cleared: boolean}
+     */
+    static applyHysteresis(currentValue, previousState, alarmLimit, hysteresis = null) {
+        if (hysteresis === null) {
+            hysteresis = Math.abs(alarmLimit * 0.02); // 2% default hysteresis
+        }
+
+        const result = {
+            state: previousState,
+            triggered: false,
+            cleared: false
+        };
+
+        if (previousState === 0) {
+            // Currently normal, check if alarm should trigger
+            if (currentValue > alarmLimit) {
+                result.state = 1;
+                result.triggered = true;
+            }
+        } else {
+            // Currently in alarm, check if alarm should clear
+            if (currentValue < alarmLimit - hysteresis) {
+                result.state = 0;
+                result.cleared = true;
             }
         }
 
-        return value.toFixed(decimalPlaces);
+        return result;
+    }
+
+    /**
+     * Generate trend data for charting
+     * @param {Array} historicalData - Array of data points with timestamp and value
+     * @param {number} intervalMinutes - Interval for data aggregation in minutes
+     * @returns {Array} - Array of aggregated trend points
+     */
+    static generateTrendData(historicalData, intervalMinutes = 5) {
+        if (!historicalData || historicalData.length === 0) {
+            return [];
+        }
+
+        const intervalMs = intervalMinutes * 60 * 1000;
+        const trendData = [];
+        const groupedData = new Map();
+
+        // Group data by time intervals
+        historicalData.forEach(point => {
+            const timestamp = new Date(point.timestamp);
+            const intervalStart = new Date(Math.floor(timestamp.getTime() / intervalMs) * intervalMs);
+            const key = intervalStart.getTime();
+
+            if (!groupedData.has(key)) {
+                groupedData.set(key, []);
+            }
+            groupedData.get(key).push(point.value);
+        });
+
+        // Calculate statistics for each interval
+        groupedData.forEach((values, timestamp) => {
+            const stats = this.calculateStatistics(values);
+            if (stats) {
+                trendData.push({
+                    timestamp: new Date(timestamp),
+                    min: stats.min,
+                    max: stats.max,
+                    average: stats.average,
+                    count: stats.count
+                });
+            }
+        });
+
+        return trendData.sort((a, b) => a.timestamp - b.timestamp);
+    }
+
+    /**
+     * Detect spikes or anomalies in data
+     * @param {Array} values - Array of numerical values
+     * @param {number} threshold - Standard deviation multiplier for spike detection
+     * @returns {Array} - Array of spike indices
+     */
+    static detectSpikes(values, threshold = 3) {
+        if (!values || values.length < 3) {
+            return [];
+        }
+
+        const stats = this.calculateStatistics(values);
+        if (!stats) {
+            return [];
+        }
+
+        const spikes = [];
+        const upperLimit = stats.average + (threshold * stats.standardDeviation);
+        const lowerLimit = stats.average - (threshold * stats.standardDeviation);
+
+        values.forEach((value, index) => {
+            if (value > upperLimit || value < lowerLimit) {
+                spikes.push({
+                    index: index,
+                    value: value,
+                    deviation: Math.abs(value - stats.average) / stats.standardDeviation
+                });
+            }
+        });
+
+        return spikes;
+    }
+
+    /**
+     * Calculate process capability indices (Cp, Cpk)
+     * @param {Array} values - Array of process values
+     * @param {number} lowerSpec - Lower specification limit
+     * @param {number} upperSpec - Upper specification limit
+     * @returns {object} - Capability indices
+     */
+    static calculateProcessCapability(values, lowerSpec, upperSpec) {
+        const stats = this.calculateStatistics(values);
+        if (!stats || upperSpec <= lowerSpec) {
+            return null;
+        }
+
+        const Cp = (upperSpec - lowerSpec) / (6 * stats.standardDeviation);
+        const Cpk = Math.min(
+            (stats.average - lowerSpec) / (3 * stats.standardDeviation),
+            (upperSpec - stats.average) / (3 * stats.standardDeviation)
+        );
+
+        return {
+            Cp: Cp,
+            Cpk: Cpk,
+            processSpread: 6 * stats.standardDeviation,
+            specSpread: upperSpec - lowerSpec,
+            centeringIndex: Math.abs(stats.average - (upperSpec + lowerSpec) / 2) / ((upperSpec - lowerSpec) / 2)
+        };
+    }
+}
+
+module.exports = EngineeringUnitsUtils;
