@@ -1459,9 +1459,9 @@ BEGIN
     SELECT 
         'Database Size' as Category,
         t.name as TableName,
-        ISNULL(s.row_count, 0) as RowCount,
-        (a.total_pages * 8) / 1024.0 as SizeMB,
-        (a.used_pages * 8) / 1024.0 as UsedSizeMB
+        ISNULL(s.row_count, 0) as [RowCount],
+        (a.total_pages * 8) / 1024.0 as [SizeMB],
+        (a.used_pages * 8) / 1024.0 as [UsedSizeMB]
     FROM sys.tables t
     INNER JOIN sys.indexes i ON t.object_id = i.object_id
     INNER JOIN sys.partitions p ON i.object_id = p.object_id AND i.index_id = p.index_id
@@ -1474,7 +1474,7 @@ BEGIN
         GROUP BY object_id
     ) s ON t.object_id = s.object_id
     WHERE t.name IN ('Tags', 'DataHistory', 'AlarmHistory', 'EventHistory', 'DataSummaryHourly', 'DataSummaryDaily')
-      AND i.index_id <= 1
+    AND i.index_id <= 1
     GROUP BY t.name, s.row_count, a.total_pages, a.used_pages
     ORDER BY (a.total_pages * 8) / 1024.0 DESC;
 END
