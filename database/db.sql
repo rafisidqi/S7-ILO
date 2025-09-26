@@ -1682,7 +1682,7 @@ BEGIN
     UPDATE Tags
     SET ModifiedDate = GETDATE(),
         ModifiedBy = SYSTEM_USER,
-        Version = Version + 1
+        Version += 1
     FROM Tags t
     INNER JOIN inserted i ON t.TagID = i.TagID;
     
@@ -1932,44 +1932,6 @@ BEGIN
     UPDATE Tags 
     SET RawMin = 0, RawMax = 32767, EuMin = -20, EuMax = 150, EngineeringUnits = '°C'
     WHERE TagName LIKE '%Temperature' AND EngineeringUnits IS NULL;
-END
-
--- Insert sample historical data for demonstration
-IF NOT EXISTS (SELECT * FROM DataHistory WHERE TagName = 'Motor1_Speed')
-BEGIN
-    PRINT 'Generating sample historical data...';
-    
-    DECLARE @StartTime datetime2 = DATEADD(hour, -48, GETDATE());
-    DECLARE @CurrentTime datetime2 = @StartTime;
-    DECLARE @EndTime datetime2 = GETDATE();
-    DECLARE @Counter int = 0;
-    
-    WHILE @CurrentTime <= @EndTime AND @Counter < 1000
-    BEGIN
-        -- Generate realistic sample data with some variation
-        EXEC sp_LogDataWithEU 
-            @TagName = 'Motor1_Speed',
-            @RawValue = 16000 + (RAND() * 8000) - 4000, -- Raw value varying around 16000
-            @Quality = 192,
-            @LogType = 'PERIODIC';
-            
-        EXEC sp_LogDataWithEU 
-            @TagName = 'Tank1_Level',
-            @RawValue = 16000 + (RAND() * 10000) - 5000, -- Raw value for 50% +/- 25%
-            @Quality = 192,
-            @LogType = 'PERIODIC';
-            
-        EXEC sp_LogDataWithEU 
-            @TagName = 'Tank1_Temperature',
-            @RawValue = 13000 + (RAND() * 6000) - 3000, -- Around 65°C +/- 15°C
-            @Quality = 192,
-            @LogType = 'PERIODIC';
-            
-        SET @CurrentTime = DATEADD(minute, 5, @CurrentTime);
-        SET @Counter = @Counter + 1;
-    END
-    
-    PRINT 'Sample historical data generated.';
 END
 
 -- Insert sample alarms
