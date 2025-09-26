@@ -1,6 +1,267 @@
-# S7-ILO
+# S7 Standalone Client with SQL Server Integration
 
-# S7 Standalone Client
+A standalone Node.js client for communicating with Siemens S7 PLCs, now enhanced with SQL Server Express database integration for dynamic tag management. This client can run independently without Node-RED and is designed to work with PM2 for production deployments.
+
+## 🚀 New Features
+
+- **SQL Server Integration**: Dynamic tag loading from SQL Server Express database
+- **Enhanced Data Processing**: Tag metadata, scaling factors, and alarm limits
+- **Alarm Management**: Real-time alarm monitoring and acknowledgment
+- **Tag Grouping**: Organize tags by functional groups
+- **Database CRUD**: Add, update, and delete tags through API
+- **Auto-refresh**: Automatic tag list updates from database
+
+## Features
+
+- **Standalone Operation**: No Node-RED dependency
+- **Event-Driven**: Built on EventEmitter for reactive programming
+- **Cyclic Reading**: Automatically reads PLC variables at configurable intervals
+- **Variable Writing**: Write single or multiple variables to the PLC
+- **SQL Database**: Store and manage tag configurations in SQL Server
+- **HTTP API**: Enhanced REST API with database operations
+- **PM2 Ready**: Production-ready with PM2 process management
+- **Error Handling**: Comprehensive error handling and reconnection logic
+
+## Installation
+
+1. **Clone or create the project directory:**
+```bash
+mkdir s7-standalone-client
+cd s7-standalone-client
+```
+
+2. **Install dependencies:**
+```bash
+npm install
+```
+
+3. **Install SQL Server Express** (if not already installed)
+4. **Set up the database:**
+```bash
+npm run db:setup
+```
+
+5. **Install PM2 globally (optional, for production):**
+```bash
+npm install -g pm2
+```
+
+## Database Setup
+
+### SQL Server Express Setup
+
+1. **Install SQL Server Express** from Microsoft
+2. **Run the database setup script:**
+```bash
+sqlcmd -S localhost\SQLEXPRESS -i database-setup.sql
+```
+
+3. **Or manually create the database:**
+   - Create database named `PLCTags`
+   - Run the provided SQL script to create tables and sample data
+
+### Database Schema
+
+The `Tags` table structure:
+```sql
+CREATE TABLE Tags (
+    TagID int IDENTITY(1,1) PRIMARY KEY,
+    TagName nvarchar(100) NOT NULL UNIQUE,
+    TagAddress nvarchar(50) NOT NULL,
+    TagType nvarchar(20) DEFAULT 'REAL',
+    Description nvarchar(255),
+    Enabled bit DEFAULT 1,
+    GroupName nvarchar(50) DEFAULT 'Default',
+    ScalingFactor float DEFAULT 1.0,
+    Units nvarchar(20),
+    MinValue float,
+    MaxValue float,
+    AlarmHigh float,
+    AlarmLow float,
+    CreatedDate datetime2 DEFAULT GETDATE(),
+    ModifiedDate datetime2 DEFAULT GETDATE()
+);
+```
+
+## Configuration
+
+### Enhanced S7 Configuration with SQL
+
+```javascript
+const config = {
+    // S7 PLC Configuration
+    transport: 'iso-on-tcp',
+    address: '192.168.1.10',
+    port: 102,
+    rack: 0,
+    slot: 2,
+    cycletime: 1000,
+    timeout: 2000,
+    connmode: 'rack-slot',
+
+    // SQL Server Configuration
+    sqlConfig: {
+        server: 'localhost\\SQLEXPRESS',
+        database: 'PLCTags',
+        tagTable: 'Tags',
+        cacheRefreshInterval: 30000,  // 30 seconds
+        enableAutoRefresh: true,
+        options: {
+            encrypt: false,
+            trustServerCertificate: true,
+            enableArithAbort: true,
+            instanceName: 'SQLEXPRESS'
+        }
+    }
+};
+```
+
+### Authentication Options
+
+**Windows Authentication (Default):**
+```javascript
+sqlConfig: {
+    server: 'localhost\\SQLEXPRESS',
+    database: 'PLCTags',
+    // No user/password needed for Windows Authentication
+}
+```
+
+**SQL Server Authentication:**
+```javascript
+sqlConfig: {
+    server: 'localhost\\SQLEXPRESS',
+    database: 'PLCTags',
+    user: 'your_username',
+    password: 'your_password'
+}
+```
+
+## Usage Examples
+
+### Basic Enhanced Client
+
+```javascript
+const EnhancedS7Client = require('./EnhancedS7Client');
+
+const client = new EnhancedS7Client(config);
+
+// Event handlers
+client.on('initialized', () => {
+    console.log('Enhanced S7 Client initialized');
+});
+
+client.on('enhanced_data', (data) => {
+    Object.entries(data).forEach(([tagName, tagInfo]) => {
+        console.log(`${tagName}: ${tagInfo.value}${tagInfo.metadata?.units || ''}`);
+    });
+});
+
+client.on('alarm', (alarm) => {
+    console.log(`ALARM ${alarm.type}: ${alarm.tagName} = ${alarm.value}`);
+});
+
+// Initialize (connects to both SQL and PLC)
+await client.initialize();
+```
+
+### Running Examples
+
+1. **Basic SQL Integration:**
+```bash
+npm run sql
+```
+
+2. **Enhanced HTTP API Server:**
+```bash
+npm run sql-api
+```
+
+3. **Test Database Connection:**
+```bash
+npm run db:test
+```
+
+## Enhanced HTTP API
+
+The enhanced API includes all previous endpoints plus:
+
+### Database Operations
+- `GET /api/tags` - Get all tags with metadata
+- `GET /api/groups` - Get tag groups
+- `GET /api/group?group=Motors` - Get tags by group
+- `POST /api/tag` - Add/update tag in database
+- `DELETE /api/tag?name=TagName` - Delete tag from database
+- `POST /api/sql/refresh` - Refresh tags from database
+- `GET /api/sql/test` - Test database connection
+
+### Enhanced Data
+- `GET /api/enhanced-data` - Get PLC data with scaling and metadata
+- `GET /api/alarms` - Get alarm information
+- `POST /api/alarms/acknowledge` - Acknowledge alarms
+
+### Example API Calls
+
+**Get enhanced data:**
+```bash
+curl http://localhost:3000/api/enhanced-data
+```
+
+**Add a new tag:**
+```bash
+curl -X POST http://localhost:3000/api/tag \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "New_Temperature",
+    "addr": "DB1,REAL100",
+    "type": "REAL",
+    "description": "New temperature sensor",
+    "group": "Sensors",
+    "units": "°C",
+    "limits": {
+      "min": -40,
+      "max": 120,
+      "alarmHigh": 80,
+      "alarmLow": 5
+    }
+  }'
+```
+
+**Get tags by group:**
+```bash
+curl http://localhost:3000/api/group?group=Motors
+```
+
+## Tag Management
+
+### Adding Tags Programmatically
+
+```javascript
+await client.saveTag({
+    name: 'Motor1_Speed',
+    addr: 'DB1,REAL4',
+    type: 'REAL',
+    description: 'Motor 1 Speed',
+    group: 'Motors',
+    scaling: 1.0,
+    units: 'RPM',
+    limits: {
+        min: 0,
+        max: 3000,
+        alarmHigh: 2800,
+        alarmLow: 100
+    }
+});
+```
+
+### Working with Groups
+
+```javascript
+// Get all groups
+const groups = client.getTagGroups();
+
+// Get tags in a specific group
+const motorTags =# S7 Standalone Client
 
 A standalone Node.js client for communicating with Siemens S7 PLCs, extracted from the node-red-contrib-s7 project. This client can run independently without Node-RED and is designed to work with PM2 for production deployments.
 
