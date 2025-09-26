@@ -1,18 +1,22 @@
 {
-    "name": "s7-standalone-client",
-    "version": "2.0.0",
-    "description": "Enhanced S7 PLC client with SQL Server integration, engineering units, and comprehensive data logging",
-    "main": "S7Client.js",
+    "name": "s7-multi-plc-client",
+    "version": "2.1.0",
+    "description": "Enhanced S7 Multi-PLC client with SQL Server integration, engineering units, and comprehensive data logging with dynamic PLC management",
+    "main": "MultiPLCManager.js",
     "scripts": {
         "start": "node example.js",
         "dev": "nodemon example.js",
         "sql": "node sql-example.js",
         "sql-api": "node sql-server-api-example.js",
         "logging": "node enhanced-logging-api.js",
+        "multi-plc": "node multi-plc-api-server.js",
         "advanced": "node advanced-example.js",
         "db:setup": "sqlcmd -S localhost\\SQLEXPRESS -i database/db.sql",
+        "db:setup-multi": "sqlcmd -S localhost\\SQLEXPRESS -i database/multi-plc-schema.sql",
         "db:test": "node -e \"const SqlTagManager = require('./SqlTagManager'); const mgr = new SqlTagManager(); mgr.testConnection().then(console.log).catch(console.error);\"",
+        "db:test-multi": "node -e \"const MultiPLCManager = require('./MultiPLCManager'); const mgr = new MultiPLCManager({server: 'localhost\\\\SQLEXPRESS', database: 'IndolaktoWWTP'}); mgr.connectToDatabase().then(() => console.log('Multi-PLC DB connection successful')).catch(console.error);\"",
         "pm2:start": "pm2 start ecosystem.config.js",
+        "pm2:start-multi": "pm2 start ecosystem-multi-plc.config.js",
         "pm2:stop": "pm2 stop s7-client",
         "pm2:restart": "pm2 restart s7-client",
         "pm2:delete": "pm2 delete s7-client",
@@ -38,7 +42,10 @@
         "industrial",
         "automation",
         "historian",
-        "alarms"
+        "alarms",
+        "multi-plc",
+        "dynamic-connection",
+        "centralized-monitoring"
     ],
     "author": "Your Name",
     "license": "MIT",
@@ -47,10 +54,10 @@
     },
     "repository": {
         "type": "git",
-        "url": "https://github.com/yourusername/s7-standalone-client.git"
+        "url": "https://github.com/yourusername/s7-multi-plc-client.git"
     },
     "bugs": {
-        "url": "https://github.com/yourusername/s7-standalone-client/issues"
+        "url": "https://github.com/yourusername/s7-multi-plc-client/issues"
     },
-    "homepage": "https://github.com/yourusername/s7-standalone-client#readme"
+    "homepage": "https://github.com/yourusername/s7-multi-plc-client#readme"
 }
