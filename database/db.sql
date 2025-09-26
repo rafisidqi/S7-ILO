@@ -78,13 +78,13 @@ BEGIN
         
         -- Data logging configuration
         LoggingEnabled bit DEFAULT 1,     -- Enable data logging
-        LogOnChange bit DEFAULT 1,        -- Log when value changes
+        LogOnChange bit DEFAULT 0,        -- Log when value changes
         ChangeThreshold float DEFAULT 0.01, -- Minimum change to log
         MaxLogRate int DEFAULT 60,        -- Max logs per minute
         TrendingEnabled bit DEFAULT 1,    -- Enable trending/summaries
         
         -- Data retention
-        RetentionDays int DEFAULT 90,     -- How long to keep raw data
+        RetentionDays int DEFAULT 3650,     -- How long to keep raw data
         
         -- Advanced features
         ScalingType nvarchar(20) DEFAULT 'LINEAR', -- LINEAR, SQRT, POLYNOMIAL, LOOKUP
@@ -886,7 +886,7 @@ CREATE PROCEDURE sp_AddEnhancedTag
     @MaxValue float = NULL,
     @AlarmHigh float = NULL,
     @AlarmLow float = NULL,
-    @AlarmEnabled bit = 1,
+    @AlarmEnabled bit = 0,
     @LoggingEnabled bit = 1,
     @CreatedBy nvarchar(100) = NULL
 AS
