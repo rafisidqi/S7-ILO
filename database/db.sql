@@ -21,7 +21,7 @@ END
 GO
 
 -- Use the IndolaktoWWTP database
-USE IndolaktoWWTP;
+USE [IndolaktoWWTP];
 GO
 
 PRINT '=== Creating Enhanced S7 Database Schema ===';
@@ -930,105 +930,6 @@ BEGIN
 END
 GO
 
--- Enhanced procedure to log data with engineering units
-IF EXISTS (SELECT * FROM sys.procedures WHERE name = 'sp_LogDataWithEU')
-    DROP PROCEDURE sp_LogDataWithEU;
-GO
-
-CREATE PROCEDURE sp_LogDataWithEU
-    @TagName nvarchar(100),
-    @RawValue float,
-    @EuValue float = NULL,
-    @Quality int = 192,
-    @LogType nvarchar(20) = 'PERIODIC',
-    @AutoCalculateEU bit = 1
-AS
-BEGIN
-    SET NOCOUNT ON;
-    
-    DECLARE @ShouldLog bit = 1;
-    DECLARE @ChangeThreshold float;
-    DECLARE @LastEuValue float;
-    DECLARE @MaxFrequency int;
-    DECLARE @RecentLogCount int;
-    DECLARE @CalculatedEuValue float = @EuValue;
-
-    BEGIN TRY
-        -- Get tag configuration
-        SELECT 
-            @ChangeThreshold = COALESCE(lc.ChangeThreshold, t.ChangeThreshold, 0.01),
-            @MaxFrequency = COALESCE(lc.MaxLogFrequency, t.MaxLogRate, 60),
-            @ShouldLog = CASE WHEN t.LoggingEnabled = 1 AND COALESCE(lc.EnableLogging, 1) = 1 THEN 1 ELSE 0 END
-        FROM Tags t
-        LEFT JOIN LoggingConfiguration lc ON t.TagName = lc.TagName
-        WHERE t.TagName = @TagName;
-
-        -- Calculate EU value if not provided and auto-calculation is enabled
-        IF @CalculatedEuValue IS NULL AND @AutoCalculateEU = 1
-        BEGIN
-            SELECT @CalculatedEuValue = dbo.fn_RawToEu(@TagName, @RawValue);
-        END
-        
-        -- Use raw value if EU calculation failed
-        IF @CalculatedEuValue IS NULL
-            SET @CalculatedEuValue = @RawValue;
-
-        -- If no configuration found, use defaults
-        IF @ShouldLog IS NULL
-        BEGIN
-            SET @ShouldLog = 1;
-            SET @ChangeThreshold = 0.01;
-            SET @MaxFrequency = 60;
-        END
-
-        -- Check frequency limits for periodic logging
-        IF @ShouldLog = 1 AND @LogType = 'PERIODIC'
-        BEGIN
-            SELECT @RecentLogCount = COUNT(*)
-            FROM DataHistory 
-            WHERE TagName = @TagName 
-              AND Timestamp > DATEADD(minute, -1, GETDATE());
-
-            IF @RecentLogCount >= @MaxFrequency
-                SET @ShouldLog = 0;
-        END
-
-        -- Check for significant change if LogOnChange is enabled
-        IF @ShouldLog = 1 AND @LogType IN ('CHANGE', 'PERIODIC')
-        BEGIN
-            SELECT TOP 1 @LastEuValue = EuValue 
-            FROM DataHistory 
-            WHERE TagName = @TagName 
-            ORDER BY Timestamp DESC;
-
-            IF @LastEuValue IS NOT NULL AND ABS(@CalculatedEuValue - @LastEuValue) < @ChangeThreshold AND @LogType <> 'MANUAL'
-                SET @ShouldLog = 0;
-        END
-
-        -- Log the data if all checks pass
-        IF @ShouldLog = 1
-        BEGIN
-            INSERT INTO DataHistory (TagName, RawValue, EuValue, Quality, LogType, Timestamp)
-            VALUES (@TagName, @RawValue, @CalculatedEuValue, @Quality, @LogType, GETDATE());
-            
-            SELECT SCOPE_IDENTITY() as LogID, 1 as Logged, @CalculatedEuValue as CalculatedEuValue;
-        END
-        ELSE
-        BEGIN
-            SELECT NULL as LogID, 0 as Logged, @CalculatedEuValue as CalculatedEuValue;
-        END
-        
-    END TRY
-    BEGIN CATCH
-        -- Log error
-        INSERT INTO EventHistory (EventType, EventCategory, EventMessage, TagName, Source)
-        VALUES ('LOGGING_ERROR', 'ERROR', 'Failed to log data for ' + @TagName + ': ' + ERROR_MESSAGE(), @TagName, 'sp_LogDataWithEU');
-        
-        THROW;
-    END CATCH
-END
-GO
-
 -- Enhanced alarm logging procedure
 IF EXISTS (SELECT * FROM sys.procedures WHERE name = 'sp_LogAlarmWithEU')
     DROP PROCEDURE sp_LogAlarmWithEU;
@@ -1105,7 +1006,11 @@ BEGIN
             COALESCE(@Username, 'SYSTEM'),
             'AlarmSystem',
             @CurrentValue,
-            JSON_OBJECT('AlarmType', @AlarmType, 'Severity', @Severity, 'LimitValue', @LimitValue)
+            (SELECT 
+                @AlarmType AS AlarmType,
+                @Severity AS Severity,
+                @LimitValue AS LimitValue
+            FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
         );
         
         SELECT SCOPE_IDENTITY() as AlarmID, 'SUCCESS' as Status;
@@ -1146,8 +1051,16 @@ BEGIN
             MIN(dh.EuValue) as MinValue,
             MAX(dh.EuValue) as MaxValue,
             AVG(dh.EuValue) as AvgValue,
-            FIRST_VALUE(dh.EuValue) OVER (PARTITION BY dh.TagName, DATEADD(hour, DATEDIFF(hour, 0, dh.Timestamp), 0) ORDER BY dh.Timestamp) as FirstValue,
-            LAST_VALUE(dh.EuValue) OVER (PARTITION BY dh.TagName, DATEADD(hour, DATEDIFF(hour, 0, dh.Timestamp), 0) ORDER BY dh.Timestamp ROWS UNBOUNDED FOLLOWING) as LastValue,
+            -- Get first value by finding the earliest timestamp
+            (SELECT TOP 1 EuValue FROM DataHistory dh2 
+             WHERE dh2.TagName = dh.TagName 
+               AND DATEADD(hour, DATEDIFF(hour, 0, dh2.Timestamp), 0) = DATEADD(hour, DATEDIFF(hour, 0, dh.Timestamp), 0)
+             ORDER BY dh2.Timestamp ASC) as FirstValue,
+            -- Get last value by finding the latest timestamp
+            (SELECT TOP 1 EuValue FROM DataHistory dh3 
+             WHERE dh3.TagName = dh.TagName 
+               AND DATEADD(hour, DATEDIFF(hour, 0, dh3.Timestamp), 0) = DATEADD(hour, DATEDIFF(hour, 0, dh.Timestamp), 0)
+             ORDER BY dh3.Timestamp DESC) as LastValue,
             COUNT(*) as SampleCount,
             STDEV(dh.EuValue) as StandardDeviation,
             VAR(dh.EuValue) as Variance,
@@ -1338,13 +1251,13 @@ BEGIN
             VALUES ('DATA_CLEANUP', 'INFO', 
                     'Data cleanup completed successfully', 
                     'sp_CleanupOldData',
-                    JSON_OBJECT(
-                        'DataRecordsDeleted', @DataDeleted,
-                        'AlarmRecordsDeleted', @AlarmDeleted, 
-                        'EventRecordsDeleted', @EventDeleted,
-                        'SummaryRecordsDeleted', @SummaryDeleted,
-                        'CompressedRecords', @CompressedRecords
-                    ));
+                    (SELECT 
+                        @DataDeleted AS DataRecordsDeleted,
+                        @AlarmDeleted AS AlarmRecordsDeleted,
+                        @EventDeleted AS EventRecordsDeleted,
+                        @SummaryDeleted AS SummaryRecordsDeleted,
+                        @CompressedRecords AS CompressedRecords
+                     FOR JSON PATH, WITHOUT_ARRAY_WRAPPER));
         END
 
         -- Return cleanup results
@@ -1695,14 +1608,15 @@ BEGIN
         i.TagName,
         SYSTEM_USER,
         'Database_Trigger',
-        JSON_OBJECT(
-            'OldDescription', d.Description,
-            'NewDescription', i.Description,
-            'OldGroup', d.GroupName,
-            'NewGroup', i.GroupName,
-            'OldEnabled', d.Enabled,
-            'NewEnabled', i.Enabled
-        )
+        (SELECT 
+            d.Description AS OldDescription,
+            i.Description AS NewDescription,
+            d.GroupName AS OldGroup,
+            i.GroupName AS NewGroup,
+            d.Enabled AS OldEnabled,
+            i.Enabled AS NewEnabled
+         FOR JSON PATH, WITHOUT_ARRAY_WRAPPER
+         )
     FROM inserted i
     INNER JOIN deleted d ON i.TagID = d.TagID
     WHERE i.Description <> d.Description 
@@ -2026,6 +1940,105 @@ PRINT '   • EXEC sp_GenerateHourlySummaries - Create trend data';
 PRINT '   • EXEC sp_CleanupOldData - Maintain database size';
 PRINT '   • EXEC sp_GetSystemStatistics - System health check';
 PRINT '';
+
+-- Enhanced procedure to log data with engineering units
+IF EXISTS (SELECT * FROM sys.procedures WHERE name = 'sp_LogDataWithEU')
+    DROP PROCEDURE sp_LogDataWithEU;
+GO
+
+CREATE PROCEDURE sp_LogDataWithEU
+    @TagName nvarchar(100),
+    @RawValue float,
+    @EuValue float = NULL,
+    @Quality int = 192,
+    @LogType nvarchar(20) = 'PERIODIC',
+    @AutoCalculateEU bit = 1
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @ShouldLog bit = 1;
+    DECLARE @ChangeThreshold float;
+    DECLARE @LastEuValue float;
+    DECLARE @MaxFrequency int;
+    DECLARE @RecentLogCount int;
+    DECLARE @CalculatedEuValue float = @EuValue;
+
+    BEGIN TRY
+        -- Get tag configuration
+        SELECT 
+            @ChangeThreshold = COALESCE(lc.ChangeThreshold, t.ChangeThreshold, 0.01),
+            @MaxFrequency = COALESCE(lc.MaxLogFrequency, t.MaxLogRate, 60),
+            @ShouldLog = CASE WHEN t.LoggingEnabled = 1 AND COALESCE(lc.EnableLogging, 1) = 1 THEN 1 ELSE 0 END
+        FROM Tags t
+        LEFT JOIN LoggingConfiguration lc ON t.TagName = lc.TagName
+        WHERE t.TagName = @TagName;
+
+        -- Calculate EU value if not provided and auto-calculation is enabled
+        IF @CalculatedEuValue IS NULL AND @AutoCalculateEU = 1
+        BEGIN
+            SELECT @CalculatedEuValue = dbo.fn_RawToEu(@TagName, @RawValue);
+        END
+        
+        -- Use raw value if EU calculation failed
+        IF @CalculatedEuValue IS NULL
+            SET @CalculatedEuValue = @RawValue;
+
+        -- If no configuration found, use defaults
+        IF @ShouldLog IS NULL
+        BEGIN
+            SET @ShouldLog = 1;
+            SET @ChangeThreshold = 0.01;
+            SET @MaxFrequency = 60;
+        END
+
+        -- Check frequency limits for periodic logging
+        IF @ShouldLog = 1 AND @LogType = 'PERIODIC'
+        BEGIN
+            SELECT @RecentLogCount = COUNT(*)
+            FROM DataHistory 
+            WHERE TagName = @TagName 
+              AND Timestamp > DATEADD(minute, -1, GETDATE());
+
+            IF @RecentLogCount >= @MaxFrequency
+                SET @ShouldLog = 0;
+        END
+
+        -- Check for significant change if LogOnChange is enabled
+        IF @ShouldLog = 1 AND @LogType IN ('CHANGE', 'PERIODIC')
+        BEGIN
+            SELECT TOP 1 @LastEuValue = EuValue 
+            FROM DataHistory 
+            WHERE TagName = @TagName 
+            ORDER BY Timestamp DESC;
+
+            IF @LastEuValue IS NOT NULL AND ABS(@CalculatedEuValue - @LastEuValue) < @ChangeThreshold AND @LogType <> 'MANUAL'
+                SET @ShouldLog = 0;
+        END
+
+        -- Log the data if all checks pass
+        IF @ShouldLog = 1
+        BEGIN
+            INSERT INTO DataHistory (TagName, RawValue, EuValue, Quality, LogType, Timestamp)
+            VALUES (@TagName, @RawValue, @CalculatedEuValue, @Quality, @LogType, GETDATE());
+            
+            SELECT SCOPE_IDENTITY() as LogID, 1 as Logged, @CalculatedEuValue as CalculatedEuValue;
+        END
+        ELSE
+        BEGIN
+            SELECT NULL as LogID, 0 as Logged, @CalculatedEuValue as CalculatedEuValue;
+        END
+        
+    END TRY
+    BEGIN CATCH
+        -- Log error
+        INSERT INTO EventHistory (EventType, EventCategory, EventMessage, TagName, Source)
+        VALUES ('LOGGING_ERROR', 'ERROR', 'Failed to log data for ' + @TagName + ': ' + ERROR_MESSAGE(), @TagName, 'sp_LogDataWithEU');
+        
+        THROW;
+    END CATCH
+END
+GO
 
 -- Show sample of what was created
 SELECT TOP 5 
