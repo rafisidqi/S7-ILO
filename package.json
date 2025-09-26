@@ -1,20 +1,28 @@
 {
     "name": "s7-standalone-client",
-    "version": "1.0.0",
-    "description": "Standalone S7 PLC client extracted from node-red-contrib-s7",
+    "version": "2.0.0",
+    "description": "Enhanced S7 PLC client with SQL Server integration, engineering units, and comprehensive data logging",
     "main": "S7Client.js",
     "scripts": {
         "start": "node example.js",
         "dev": "nodemon example.js",
+        "sql": "node sql-example.js",
+        "sql-api": "node sql-server-api-example.js",
+        "logging": "node enhanced-logging-api.js",
+        "advanced": "node advanced-example.js",
+        "db:setup": "sqlcmd -S localhost\\SQLEXPRESS -i database/db.sql",
+        "db:test": "node -e \"const SqlTagManager = require('./SqlTagManager'); const mgr = new SqlTagManager(); mgr.testConnection().then(console.log).catch(console.error);\"",
         "pm2:start": "pm2 start ecosystem.config.js",
         "pm2:stop": "pm2 stop s7-client",
         "pm2:restart": "pm2 restart s7-client",
         "pm2:delete": "pm2 delete s7-client",
         "pm2:logs": "pm2 logs s7-client",
-        "pm2:monit": "pm2 monit"
+        "pm2:monit": "pm2 monit",
+        "test": "echo \"Error: no test specified\" && exit 1"
     },
     "dependencies": {
-        "@st-one-io/nodes7": "^1.1.0"
+        "@st-one-io/nodes7": "^1.1.0",
+        "mssql": "^10.0.1"
     },
     "devDependencies": {
         "nodemon": "^3.0.1"
@@ -23,13 +31,26 @@
         "s7",
         "plc",
         "siemens",
-        "modbus",
+        "sql-server",
+        "data-logging",
+        "engineering-units",
+        "scada",
         "industrial",
-        "automation"
+        "automation",
+        "historian",
+        "alarms"
     ],
     "author": "Your Name",
     "license": "MIT",
     "engines": {
-        "node": ">=12.0.0"
-    }
+        "node": ">=14.0.0"
+    },
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/yourusername/s7-standalone-client.git"
+    },
+    "bugs": {
+        "url": "https://github.com/yourusername/s7-standalone-client/issues"
+    },
+    "homepage": "https://github.com/yourusername/s7-standalone-client#readme"
 }

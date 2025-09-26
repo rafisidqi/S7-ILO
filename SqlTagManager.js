@@ -2,8 +2,8 @@ const { EventEmitter } = require('events');
 const sql = require('mssql');
 
 /**
- * SQL Tag Manager - Manages PLC tags from SQL Server Express database
- * Provides functionality to read, cache, and monitor tag configurations
+ * Enhanced SQL Tag Manager - Works with the new enhanced database schema
+ * Supports engineering units, enhanced configuration, and modern features
  */
 class SqlTagManager extends EventEmitter {
     constructor(config) {
@@ -19,7 +19,7 @@ class SqlTagManager extends EventEmitter {
                 enableArithAbort: true,
                 instanceName: 'SQLEXPRESS'
             },
-            // Table configuration
+            // Table configuration - updated for new schema
             tagTable: 'Tags',
             // Cache settings
             cacheRefreshInterval: 30000, // 30 seconds
@@ -118,7 +118,7 @@ class SqlTagManager extends EventEmitter {
     }
 
     /**
-     * Refresh tags from database
+     * Refresh tags from database with enhanced schema support
      */
     async refreshTags() {
         if (!this.isConnected || !this.connectionPool) {
@@ -126,7 +126,7 @@ class SqlTagManager extends EventEmitter {
         }
 
         try {
-            console.log('Refreshing tags from database...');
+            console.log('Refreshing tags from enhanced database...');
             
             const result = await this.connectionPool.request().query(`
                 SELECT 
@@ -137,14 +137,52 @@ class SqlTagManager extends EventEmitter {
                     Description,
                     Enabled,
                     GroupName,
+                    
+                    -- Engineering Units Configuration
+                    RawMin,
+                    RawMax,
+                    EuMin,
+                    EuMax,
+                    EngineeringUnits,
+                    DecimalPlaces,
+                    FormatString,
+                    
+                    -- Legacy support
                     ScalingFactor,
                     Units,
+                    
+                    -- Operating limits
                     MinValue,
                     MaxValue,
+                    
+                    -- Alarm configuration  
                     AlarmHigh,
                     AlarmLow,
+                    AlarmHighHigh,
+                    AlarmLowLow,
+                    AlarmDeadband,
+                    AlarmEnabled,
+                    AlarmPriority,
+                    
+                    -- Data logging configuration
+                    LoggingEnabled,
+                    LogOnChange,
+                    ChangeThreshold,
+                    MaxLogRate,
+                    TrendingEnabled,
+                    RetentionDays,
+                    
+                    -- Advanced features
+                    ScalingType,
+                    ScalingCoefficients,
+                    ValidationRules,
+                    
+                    -- Audit fields
                     CreatedDate,
-                    ModifiedDate
+                    CreatedBy,
+                    ModifiedDate,
+                    ModifiedBy,
+                    Version
                 FROM ${this.config.tagTable}
                 WHERE Enabled = 1
                 ORDER BY GroupName, TagName
@@ -153,11 +191,12 @@ class SqlTagManager extends EventEmitter {
             const oldSize = this.tagCache.size;
             this.tagCache.clear();
 
-            // Process and cache tags
+            // Process and cache tags with enhanced metadata
             const tagGroups = new Map();
             
             result.recordset.forEach(row => {
                 const tag = {
+                    // Basic tag information
                     id: row.TagID,
                     name: row.TagName,
                     addr: row.TagAddress,
@@ -165,17 +204,78 @@ class SqlTagManager extends EventEmitter {
                     description: row.Description,
                     enabled: row.Enabled,
                     group: row.GroupName,
+                    
+                    // Engineering Units Configuration
+                    rawMin: row.RawMin || 0,
+                    rawMax: row.RawMax || 32767,
+                    euMin: row.EuMin || 0,
+                    euMax: row.EuMax || 100,
+                    engineeringUnits: row.EngineeringUnits || row.Units || '',
+                    decimalPlaces: row.DecimalPlaces || 2,
+                    formatString: row.FormatString,
+                    
+                    // Legacy support
                     scaling: row.ScalingFactor || 1,
-                    units: row.Units,
+                    units: row.EngineeringUnits || row.Units || '',
+                    
+                    // Scaling configuration
+                    scalingConfig: {
+                        rawMin: row.RawMin || 0,
+                        rawMax: row.RawMax || 32767,
+                        euMin: row.EuMin || 0,
+                        euMax: row.EuMax || 100,
+                        type: row.ScalingType || 'LINEAR',
+                        coefficients: row.ScalingCoefficients ? JSON.parse(row.ScalingCoefficients) : null
+                    },
+                    
+                    // Operating limits
                     limits: {
                         min: row.MinValue,
                         max: row.MaxValue,
                         alarmHigh: row.AlarmHigh,
-                        alarmLow: row.AlarmLow
+                        alarmLow: row.AlarmLow,
+                        alarmHighHigh: row.AlarmHighHigh,
+                        alarmLowLow: row.AlarmLowLow,
+                        alarmDeadband: row.AlarmDeadband || 1.0
                     },
-                    timestamps: {
-                        created: row.CreatedDate,
-                        modified: row.ModifiedDate
+                    
+                    // Alarm configuration
+                    alarmConfig: {
+                        enabled: row.AlarmEnabled || false,
+                        priority: row.AlarmPriority || 5,
+                        deadband: row.AlarmDeadband || 1.0,
+                        limits: {
+                            high: row.AlarmHigh,
+                            low: row.AlarmLow,
+                            highHigh: row.AlarmHighHigh,
+                            lowLow: row.AlarmLowLow
+                        }
+                    },
+                    
+                    // Data logging configuration
+                    loggingConfig: {
+                        enabled: row.LoggingEnabled !== false,
+                        logOnChange: row.LogOnChange !== false,
+                        changeThreshold: row.ChangeThreshold || 0.01,
+                        maxLogRate: row.MaxLogRate || 60,
+                        trendingEnabled: row.TrendingEnabled !== false,
+                        retentionDays: row.RetentionDays || 90
+                    },
+                    
+                    // Validation rules
+                    validationRules: row.ValidationRules ? JSON.parse(row.ValidationRules) : null,
+                    
+                    // Audit information
+                    audit: {
+                        created: {
+                            date: row.CreatedDate,
+                            by: row.CreatedBy
+                        },
+                        modified: {
+                            date: row.ModifiedDate,
+                            by: row.ModifiedBy
+                        },
+                        version: row.Version || 1
                     }
                 };
 
@@ -190,7 +290,7 @@ class SqlTagManager extends EventEmitter {
 
             this.lastRefresh = new Date();
             
-            console.log(`Refreshed ${this.tagCache.size} tags from database`);
+            console.log(`Refreshed ${this.tagCache.size} enhanced tags from database`);
             
             if (oldSize !== this.tagCache.size) {
                 console.log(`Tag count changed: ${oldSize} -> ${this.tagCache.size}`);
@@ -250,14 +350,14 @@ class SqlTagManager extends EventEmitter {
     }
 
     /**
-     * Get tag by name
+     * Get tag by name with full enhanced metadata
      */
     getTag(tagName) {
         return this.tagCache.get(tagName);
     }
 
     /**
-     * Get all tags
+     * Get all tags with enhanced metadata
      */
     getAllTags() {
         return Array.from(this.tagCache.values());
@@ -279,7 +379,7 @@ class SqlTagManager extends EventEmitter {
     }
 
     /**
-     * Add or update a tag in database
+     * Add or update a tag in database with enhanced support
      */
     async saveTag(tagData) {
         if (!this.isConnected || !this.connectionPool) {
@@ -287,67 +387,43 @@ class SqlTagManager extends EventEmitter {
         }
 
         try {
+            // Use stored procedure for enhanced tag creation
             const request = this.connectionPool.request();
             
-            // Check if tag exists
-            const existingTag = await request
-                .input('tagName', sql.NVarChar, tagData.name)
-                .query(`SELECT TagID FROM ${this.config.tagTable} WHERE TagName = @tagName`);
+            // Input parameters for the enhanced stored procedure
+            request.input('TagName', sql.NVarChar, tagData.name);
+            request.input('TagAddress', sql.NVarChar, tagData.addr);
+            request.input('TagType', sql.NVarChar, tagData.type || 'REAL');
+            request.input('Description', sql.NVarChar, tagData.description || '');
+            request.input('GroupName', sql.NVarChar, tagData.group || 'Default');
+            
+            // Engineering Units
+            request.input('RawMin', sql.Float, tagData.rawMin || tagData.scalingConfig?.rawMin || 0);
+            request.input('RawMax', sql.Float, tagData.rawMax || tagData.scalingConfig?.rawMax || 32767);
+            request.input('EuMin', sql.Float, tagData.euMin || tagData.scalingConfig?.euMin || 0);
+            request.input('EuMax', sql.Float, tagData.euMax || tagData.scalingConfig?.euMax || 100);
+            request.input('EngineeringUnits', sql.NVarChar, tagData.engineeringUnits || tagData.units || '');
+            request.input('DecimalPlaces', sql.Int, tagData.decimalPlaces || 2);
+            
+            // Operating limits
+            request.input('MinValue', sql.Float, tagData.limits?.min || null);
+            request.input('MaxValue', sql.Float, tagData.limits?.max || null);
+            request.input('AlarmHigh', sql.Float, tagData.limits?.alarmHigh || tagData.alarmConfig?.limits?.high || null);
+            request.input('AlarmLow', sql.Float, tagData.limits?.alarmLow || tagData.alarmConfig?.limits?.low || null);
+            request.input('AlarmEnabled', sql.Bit, tagData.alarmConfig?.enabled !== false);
+            request.input('LoggingEnabled', sql.Bit, tagData.loggingConfig?.enabled !== false);
+            request.input('CreatedBy', sql.NVarChar, tagData.createdBy || 'API_USER');
 
-            if (existingTag.recordset.length > 0) {
-                // Update existing tag
-                await request
-                    .input('tagID', sql.Int, existingTag.recordset[0].TagID)
-                    .input('tagAddress', sql.NVarChar, tagData.addr)
-                    .input('tagType', sql.NVarChar, tagData.type || 'REAL')
-                    .input('description', sql.NVarChar, tagData.description || '')
-                    .input('enabled', sql.Bit, tagData.enabled !== false)
-                    .input('groupName', sql.NVarChar, tagData.group || 'Default')
-                    .input('scalingFactor', sql.Float, tagData.scaling || 1)
-                    .input('units', sql.NVarChar, tagData.units || '')
-                    .input('minValue', sql.Float, tagData.limits?.min)
-                    .input('maxValue', sql.Float, tagData.limits?.max)
-                    .input('alarmHigh', sql.Float, tagData.limits?.alarmHigh)
-                    .input('alarmLow', sql.Float, tagData.limits?.alarmLow)
-                    .query(`
-                        UPDATE ${this.config.tagTable}
-                        SET TagAddress = @tagAddress,
-                            TagType = @tagType,
-                            Description = @description,
-                            Enabled = @enabled,
-                            GroupName = @groupName,
-                            ScalingFactor = @scalingFactor,
-                            Units = @units,
-                            MinValue = @minValue,
-                            MaxValue = @maxValue,
-                            AlarmHigh = @alarmHigh,
-                            AlarmLow = @alarmLow,
-                            ModifiedDate = GETDATE()
-                        WHERE TagID = @tagID
-                    `);
-            } else {
-                // Insert new tag
-                await request.query(`
-                    INSERT INTO ${this.config.tagTable} (
-                        TagName, TagAddress, TagType, Description, Enabled,
-                        GroupName, ScalingFactor, Units, MinValue, MaxValue,
-                        AlarmHigh, AlarmLow, CreatedDate, ModifiedDate
-                    ) VALUES (
-                        @tagName, @tagAddress, @tagType, @description, @enabled,
-                        @groupName, @scalingFactor, @units, @minValue, @maxValue,
-                        @alarmHigh, @alarmLow, GETDATE(), GETDATE()
-                    )
-                `);
-            }
-
+            const result = await request.execute('sp_AddEnhancedTag');
+            
             // Refresh cache
             await this.refreshTags();
             
             this.emit('tag_saved', tagData);
-            return true;
+            return result.recordset[0];
 
         } catch (error) {
-            console.error('Error saving tag:', error);
+            console.error('Error saving enhanced tag:', error);
             this.emit('error', error);
             throw error;
         }
@@ -367,6 +443,19 @@ class SqlTagManager extends EventEmitter {
                 .query(`DELETE FROM ${this.config.tagTable} WHERE TagName = @tagName`);
 
             if (result.rowsAffected[0] > 0) {
+                // Log the deletion
+                await this.connectionPool.request()
+                    .input('eventType', sql.NVarChar, 'TAG_DELETED')
+                    .input('eventCategory', sql.NVarChar, 'INFO')
+                    .input('eventMessage', sql.NVarChar, `Tag ${tagName} deleted via API`)
+                    .input('tagName', sql.NVarChar, tagName)
+                    .input('username', sql.NVarChar, 'API_USER')
+                    .input('source', sql.NVarChar, 'SqlTagManager')
+                    .query(`
+                        INSERT INTO EventHistory (EventType, EventCategory, EventMessage, TagName, Username, Source)
+                        VALUES (@eventType, @eventCategory, @eventMessage, @tagName, @username, @source)
+                    `);
+                    
                 await this.refreshTags();
                 this.emit('tag_deleted', tagName);
                 return true;
@@ -410,7 +499,7 @@ class SqlTagManager extends EventEmitter {
     }
 
     /**
-     * Get connection status
+     * Get connection status with enhanced information
      */
     getStatus() {
         return {
@@ -418,12 +507,18 @@ class SqlTagManager extends EventEmitter {
             tagCount: this.tagCache.size,
             lastRefresh: this.lastRefresh,
             autoRefresh: !!this.refreshTimer,
-            refreshInterval: this.config.cacheRefreshInterval
+            refreshInterval: this.config.cacheRefreshInterval,
+            features: {
+                engineeringUnits: true,
+                enhancedAlarms: true,
+                dataLogging: true,
+                advancedScaling: true
+            }
         };
     }
 
     /**
-     * Test database connection
+     * Test database connection with enhanced features
      */
     async testConnection() {
         try {
@@ -431,13 +526,23 @@ class SqlTagManager extends EventEmitter {
                 await this.connect();
             }
 
-            // Test with a simple query
+            // Test with enhanced query
             const result = await this.connectionPool.request()
-                .query(`SELECT COUNT(*) as TagCount FROM ${this.config.tagTable}`);
+                .query(`
+                    SELECT 
+                        COUNT(*) as TagCount,
+                        COUNT(CASE WHEN Enabled = 1 THEN 1 END) as EnabledTags,
+                        COUNT(CASE WHEN LoggingEnabled = 1 THEN 1 END) as LoggingEnabledTags,
+                        COUNT(CASE WHEN AlarmEnabled = 1 THEN 1 END) as AlarmEnabledTags,
+                        COUNT(DISTINCT GroupName) as GroupCount
+                    FROM ${this.config.tagTable}
+                `);
 
             return {
                 success: true,
-                tagCount: result.recordset[0].TagCount,
+                ...result.recordset[0],
+                databaseVersion: '2.0.0',
+                features: ['EngineeringUnits', 'EnhancedAlarms', 'DataLogging', 'AdvancedScaling'],
                 timestamp: new Date()
             };
 
@@ -451,51 +556,63 @@ class SqlTagManager extends EventEmitter {
     }
 
     /**
-     * Create database table if it doesn't exist
+     * Get enhanced statistics
      */
-    async createTagTable() {
+    async getEnhancedStatistics() {
         if (!this.isConnected || !this.connectionPool) {
             throw new Error('Not connected to SQL Server');
         }
 
         try {
-            await this.connectionPool.request().query(`
-                IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='${this.config.tagTable}' AND xtype='U')
-                CREATE TABLE ${this.config.tagTable} (
-                    TagID int IDENTITY(1,1) PRIMARY KEY,
-                    TagName nvarchar(100) NOT NULL UNIQUE,
-                    TagAddress nvarchar(50) NOT NULL,
-                    TagType nvarchar(20) DEFAULT 'REAL',
-                    Description nvarchar(255),
-                    Enabled bit DEFAULT 1,
-                    GroupName nvarchar(50) DEFAULT 'Default',
-                    ScalingFactor float DEFAULT 1.0,
-                    Units nvarchar(20),
-                    MinValue float,
-                    MaxValue float,
-                    AlarmHigh float,
-                    AlarmLow float,
-                    CreatedDate datetime2 DEFAULT GETDATE(),
-                    ModifiedDate datetime2 DEFAULT GETDATE()
-                )
-            `);
+            // Execute the enhanced statistics stored procedure
+            const result = await this.connectionPool.request().execute('sp_GetSystemStatistics');
+            
+            return {
+                systemOverview: result.recordsets[0][0],
+                dataLogging: result.recordsets[1][0],
+                alarms: result.recordsets[2][0],
+                topActiveTags: result.recordsets[3],
+                topAlarmedTags: result.recordsets[4],
+                recentEvents: result.recordsets[5],
+                databaseSize: result.recordsets[6]
+            };
+        } catch (error) {
+            console.error('Error getting enhanced statistics:', error);
+            throw error;
+        }
+    }
 
-            // Create indexes for better performance
-            await this.connectionPool.request().query(`
-                IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Tags_TagName')
-                CREATE INDEX IX_Tags_TagName ON ${this.config.tagTable}(TagName)
-            `);
+    /**
+     * Create enhanced database table (for setup)
+     */
+    async createEnhancedTables() {
+        if (!this.isConnected || !this.connectionPool) {
+            throw new Error('Not connected to SQL Server');
+        }
 
-            await this.connectionPool.request().query(`
-                IF NOT EXISTS (SELECT * FROM sys.indexes WHERE name = 'IX_Tags_GroupName')
-                CREATE INDEX IX_Tags_GroupName ON ${this.config.tagTable}(GroupName)
-            `);
-
-            console.log(`Table ${this.config.tagTable} created successfully`);
+        try {
+            console.log('Creating enhanced database tables...');
+            
+            // Read and execute the enhanced database setup script
+            const fs = require('fs').promises;
+            const path = require('path');
+            
+            const sqlScript = await fs.readFile(path.join(__dirname, 'database', 'db.sql'), 'utf8');
+            
+            // Execute the script in batches (split by GO statements)
+            const batches = sqlScript.split(/\r?\nGO\r?\n/);
+            
+            for (const batch of batches) {
+                if (batch.trim()) {
+                    await this.connectionPool.request().query(batch);
+                }
+            }
+            
+            console.log('Enhanced database tables created successfully');
             return true;
 
         } catch (error) {
-            console.error('Error creating table:', error);
+            console.error('Error creating enhanced tables:', error);
             throw error;
         }
     }
