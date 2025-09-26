@@ -320,14 +320,336 @@ BEGIN
         SampleCount int NOT NULL DEFAULT 0,
         StandardDeviation float,
         Variance float,
-        Range float as (MaxValue - MinValue),
+-- Enhanced SQL Server Express Database Setup Script for S7 Standalone Client
+-- Comprehensive database supporting all advanced features:
+-- - Enhanced tag management with engineering units
+-- - Complete data logging with raw/EU values  
+-- - Alarm management system
+-- - Event logging and audit trail
+-- - Data summarization and archival
+-- - Performance optimization
+-- - Automated maintenance
+
+-- Create database if it doesn't exist
+IF NOT EXISTS (SELECT * FROM sys.databases WHERE name = 'PLCTags')
+BEGIN
+    CREATE DATABASE PLCTags;
+    PRINT 'Database PLCTags created successfully.';
+END
+ELSE
+BEGIN
+    PRINT 'Database PLCTags already exists.';
+END
+GO
+
+-- Use the PLCTags database
+USE PLCTags;
+GO
+
+PRINT '=== Creating Enhanced S7 Database Schema ===';
+PRINT 'This database supports:';
+PRINT '- Engineering Units scaling and conversion';
+PRINT '- Historical data logging with dual values (raw/EU)';
+PRINT '- Comprehensive alarm management';
+PRINT '- Event logging and audit trail';
+PRINT '- Data summarization and performance optimization';
+PRINT '- Automated data archival and cleanup';
+PRINT '';
+
+-- ===============================
+-- CORE TABLES
+-- ===============================
+
+-- Enhanced Tags table with engineering units support
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='Tags' AND xtype='U')
+BEGIN
+    CREATE TABLE Tags (
+        TagID int IDENTITY(1,1) PRIMARY KEY,
+        TagName nvarchar(100) NOT NULL UNIQUE,
+        TagAddress nvarchar(50) NOT NULL,
+        TagType nvarchar(20) DEFAULT 'REAL',
+        Description nvarchar(255),
+        Enabled bit DEFAULT 1,
+        GroupName nvarchar(50) DEFAULT 'Default',
+        
+        -- Engineering Units Configuration
+        RawMin float DEFAULT 0,           -- Raw value minimum (from PLC)
+        RawMax float DEFAULT 32767,       -- Raw value maximum (from PLC) 
+        EuMin float DEFAULT 0,            -- Engineering unit minimum
+        EuMax float DEFAULT 100,          -- Engineering unit maximum
+        EngineeringUnits nvarchar(20),    -- Units symbol (°C, bar, RPM, etc.)
+        DecimalPlaces int DEFAULT 2,      -- Display precision
+        FormatString nvarchar(50),        -- Custom format string
+        
+        -- Legacy support (will be calculated from EU scaling)
+        ScalingFactor float DEFAULT 1.0,
+        Units nvarchar(20),               -- Alias for EngineeringUnits
+        
+        -- Operating limits (in engineering units)
+        MinValue float,                   -- Operating minimum
+        MaxValue float,                   -- Operating maximum
+        
+        -- Alarm configuration (in engineering units)
+        AlarmHigh float,                  -- High alarm limit
+        AlarmLow float,                   -- Low alarm limit
+        AlarmHighHigh float,              -- Critical high alarm
+        AlarmLowLow float,                -- Critical low alarm
+        AlarmDeadband float DEFAULT 1.0,  -- Alarm hysteresis
+        AlarmEnabled bit DEFAULT 1,       -- Enable alarms for this tag
+        AlarmPriority int DEFAULT 5,      -- Alarm priority (1=Critical, 5=Info)
+        
+        -- Data logging configuration
+        LoggingEnabled bit DEFAULT 1,     -- Enable data logging
+        LogOnChange bit DEFAULT 1,        -- Log when value changes
+        ChangeThreshold float DEFAULT 0.01, -- Minimum change to log
+        MaxLogRate int DEFAULT 60,        -- Max logs per minute
+        TrendingEnabled bit DEFAULT 1,    -- Enable trending/summaries
+        
+        -- Data retention
+        RetentionDays int DEFAULT 90,     -- How long to keep raw data
+        
+        -- Advanced features
+        ScalingType nvarchar(20) DEFAULT 'LINEAR', -- LINEAR, SQRT, POLYNOMIAL, LOOKUP
+        ScalingCoefficients nvarchar(500), -- JSON array for polynomial/custom scaling
+        ValidationRules nvarchar(1000),   -- JSON validation rules
+        
+        -- Audit fields
+        CreatedDate datetime2 DEFAULT GETDATE(),
+        CreatedBy nvarchar(100) DEFAULT SYSTEM_USER,
+        ModifiedDate datetime2 DEFAULT GETDATE(),
+        ModifiedBy nvarchar(100) DEFAULT SYSTEM_USER,
+        Version int DEFAULT 1            -- For change tracking
+    );
+    
+    PRINT 'Enhanced Tags table created successfully.';
+END
+ELSE
+BEGIN
+    -- Add new columns to existing Tags table if they don't exist
+    DECLARE @sql nvarchar(max) = '';
+    
+    -- Check and add engineering units columns
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tags') AND name = 'RawMin')
+    BEGIN
+        SET @sql = @sql + 'ALTER TABLE Tags ADD RawMin float DEFAULT 0; ';
+    END
+    
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tags') AND name = 'RawMax')
+    BEGIN
+        SET @sql = @sql + 'ALTER TABLE Tags ADD RawMax float DEFAULT 32767; ';
+    END
+    
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tags') AND name = 'EuMin')
+    BEGIN
+        SET @sql = @sql + 'ALTER TABLE Tags ADD EuMin float DEFAULT 0; ';
+    END
+    
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tags') AND name = 'EuMax')
+    BEGIN
+        SET @sql = @sql + 'ALTER TABLE Tags ADD EuMax float DEFAULT 100; ';
+    END
+    
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tags') AND name = 'EngineeringUnits')
+    BEGIN
+        SET @sql = @sql + 'ALTER TABLE Tags ADD EngineeringUnits nvarchar(20); ';
+    END
+    
+    -- Add other missing columns...
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tags') AND name = 'AlarmEnabled')
+    BEGIN
+        SET @sql = @sql + 'ALTER TABLE Tags ADD AlarmEnabled bit DEFAULT 1; ';
+    END
+    
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('Tags') AND name = 'LoggingEnabled')
+    BEGIN
+        SET @sql = @sql + 'ALTER TABLE Tags ADD LoggingEnabled bit DEFAULT 1; ';
+    END
+    
+    IF LEN(@sql) > 0
+    BEGIN
+        EXEC sp_executesql @sql;
+        PRINT 'Enhanced columns added to existing Tags table.';
+    END
+    ELSE
+    BEGIN
+        PRINT 'Enhanced Tags table already up to date.';
+    END
+END
+GO
+
+-- ===============================
+-- LOGGING TABLES
+-- ===============================
+
+-- Enhanced DataHistory table with raw and engineering unit values
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='DataHistory' AND xtype='U')
+BEGIN
+    CREATE TABLE DataHistory (
+        LogID bigint IDENTITY(1,1) PRIMARY KEY,
+        TagName nvarchar(100) NOT NULL,
+        RawValue float NOT NULL,           -- Original value from PLC
+        EuValue float NOT NULL,            -- Scaled engineering unit value
+        Quality int DEFAULT 192,           -- 192 = Good quality (OPC standard)
+        Timestamp datetime2 DEFAULT GETDATE(),
+        LogType nvarchar(20) DEFAULT 'PERIODIC' -- PERIODIC, CHANGE, MANUAL, ALARM, WRITE
+    );
+    
+    -- Partitioning support for large datasets (optional)
+    -- CREATE PARTITION FUNCTION pf_DataHistory(datetime2) 
+    -- AS RANGE RIGHT FOR VALUES ('20240101', '20240201', '20240301'...);
+    
+    PRINT 'Enhanced DataHistory table created successfully.';
+END
+ELSE
+BEGIN
+    -- Add engineering units column if missing
+    IF NOT EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('DataHistory') AND name = 'EuValue')
+    BEGIN
+        -- Handle existing data
+        IF EXISTS (SELECT * FROM sys.columns WHERE object_id = OBJECT_ID('DataHistory') AND name = 'TagValue')
+        BEGIN
+            -- Rename TagValue to RawValue
+            EXEC sp_rename 'DataHistory.TagValue', 'RawValue', 'COLUMN';
+            PRINT 'Renamed TagValue to RawValue in DataHistory table.';
+        END
+        
+        -- Add EuValue column
+        ALTER TABLE DataHistory ADD EuValue float;
+        
+        -- Update existing records (assume no scaling for existing data)
+        UPDATE DataHistory SET EuValue = RawValue WHERE EuValue IS NULL;
+        
+        -- Make EuValue NOT NULL
+        ALTER TABLE DataHistory ALTER COLUMN EuValue float NOT NULL;
+        
+        PRINT 'Added EuValue column to existing DataHistory table.';
+    END
+    ELSE
+    BEGIN
+        PRINT 'DataHistory table already enhanced.';
+    END
+END
+GO
+
+-- Comprehensive AlarmHistory table
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='AlarmHistory' AND xtype='U')
+BEGIN
+    CREATE TABLE AlarmHistory (
+        AlarmID bigint IDENTITY(1,1) PRIMARY KEY,
+        TagName nvarchar(100) NOT NULL,
+        AlarmType nvarchar(20) NOT NULL, -- HIGH, LOW, HIGHHIGH, LOWLOW, DEVIATION, RATE, COMMUNICATION
+        AlarmState nvarchar(20) NOT NULL, -- ACTIVE, CLEARED, ACKNOWLEDGED, SHELVED
+        CurrentValue float NOT NULL,      -- Current EU value when alarm occurred
+        LimitValue float,                 -- The limit that was exceeded
+        Deviation float,                  -- How much the limit was exceeded by
+        AlarmMessage nvarchar(500),
+        Severity nvarchar(20) DEFAULT 'MEDIUM', -- LOW, MEDIUM, HIGH, CRITICAL
+        Priority int DEFAULT 5,          -- 1=Highest, 10=Lowest
+        
+        -- State management
+        ActiveTime datetime2 DEFAULT GETDATE(), -- When alarm became active
+        AcknowledgedBy nvarchar(100),
+        AcknowledgedAt datetime2,
+        ClearedAt datetime2,
+        ShelvedBy nvarchar(100),         -- Who shelved the alarm
+        ShelvedAt datetime2,
+        ShelvedUntil datetime2,          -- When shelving expires
+        
+        -- Duration tracking
+        DurationSeconds as DATEDIFF(second, ActiveTime, ISNULL(ClearedAt, GETDATE())),
+        
+        -- Grouping for alarm floods
+        AlarmGroup nvarchar(50),         -- Group similar alarms
+        FloodGroup bigint,               -- ID for alarm flood detection
+        
+        -- Context information  
+        OperatorComments nvarchar(1000),
+        SystemContext nvarchar(500),     -- System state when alarm occurred
+        
+        -- Timestamps
+        Timestamp datetime2 DEFAULT GETDATE()
+    );
+    
+    PRINT 'Enhanced AlarmHistory table created successfully.';
+END
+ELSE
+BEGIN
+    PRINT 'AlarmHistory table already exists.';
+END
+GO
+
+-- Comprehensive EventHistory table for audit trail
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='EventHistory' AND xtype='U')
+BEGIN
+    CREATE TABLE EventHistory (
+        EventID bigint IDENTITY(1,1) PRIMARY KEY,
+        EventType nvarchar(50) NOT NULL, 
+        EventCategory nvarchar(20) NOT NULL, -- INFO, WARNING, ERROR, CRITICAL, SECURITY
+        EventMessage nvarchar(1000) NOT NULL,
+        
+        -- Tag-related events
+        TagName nvarchar(100),
+        OldValue float,                  -- Previous value (EU)
+        NewValue float,                  -- New value (EU) 
+        OldRawValue float,              -- Previous raw value
+        NewRawValue float,              -- New raw value
+        
+        -- User context
+        Username nvarchar(100),
+        UserRole nvarchar(50),
+        ClientIP nvarchar(50),
+        UserAgent nvarchar(200),
+        
+        -- System context
+        Source nvarchar(100) DEFAULT 'S7Client',
+        SourceVersion nvarchar(20),
+        SessionID nvarchar(50),         -- User session tracking
+        RequestID nvarchar(50),         -- Request correlation
+        
+        -- Additional data (JSON format)
+        AdditionalData nvarchar(max),   -- JSON for extra context
+        
+        -- Timestamps
+        Timestamp datetime2 DEFAULT GETDATE()
+    );
+    
+    PRINT 'Enhanced EventHistory table created successfully.';
+END
+ELSE
+BEGIN
+    PRINT 'EventHistory table already exists.';
+END
+GO
+
+-- ===============================
+-- PERFORMANCE AND SUMMARY TABLES
+-- ===============================
+
+-- Hourly data summaries for better performance
+IF NOT EXISTS (SELECT * FROM sysobjects WHERE name='DataSummaryHourly' AND xtype='U')
+BEGIN
+    CREATE TABLE DataSummaryHourly (
+        SummaryID bigint IDENTITY(1,1) PRIMARY KEY,
+        TagName nvarchar(100) NOT NULL,
+        HourTimestamp datetime2 NOT NULL,
+        
+        -- Statistical values (engineering units)
+        MinValue float NOT NULL,
+        MaxValue float NOT NULL,
+        AvgValue float NOT NULL,
+        LastValue float NOT NULL,
+        FirstValue float NOT NULL,
+        SampleCount int NOT NULL DEFAULT 0,
+        StandardDeviation float,
+        Variance float,
+        Range AS (MaxValue - MinValue),
         
         -- Data quality metrics
         GoodQualityCount int DEFAULT 0,
         BadQualityCount int DEFAULT 0,
-        QualityPercentage as CASE WHEN (GoodQualityCount + BadQualityCount) > 0 
-                                 THEN (GoodQualityCount * 100.0) / (GoodQualityCount + BadQualityCount) 
-                                 ELSE 0 END,
+        QualityPercentage AS (CASE WHEN (GoodQualityCount + BadQualityCount) > 0 
+                                   THEN (GoodQualityCount * 100.0) / (GoodQualityCount + BadQualityCount) 
+                                   ELSE 0 END),
         
         -- Process information
         TimeInRange int DEFAULT 0,       -- Minutes within normal operating range
