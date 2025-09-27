@@ -161,6 +161,7 @@ class EnhancedS7ClientWithLogging extends EnhancedS7Client {
                 // Prepare for enhanced logging if enabled
                 if (this.isLoggingEnabled && this.dataLogger.isInitialized && tagMeta.loggingConfig.enabled) {
                     logDataPoints.push({
+                        plcName: plcName,
                         tagName: tagName,
                         euValue: euObject.euValue,
                         rawValue: rawValue,
@@ -186,6 +187,7 @@ class EnhancedS7ClientWithLogging extends EnhancedS7Client {
                 // Log without EU conversion if logging is enabled for unknown tags
                 if (this.isLoggingEnabled && this.dataLogger.isInitialized) {
                     logDataPoints.push({
+                        plcName: plcName,
                         tagName: tagName,
                         euValue: rawValue,
                         rawValue: rawValue,
