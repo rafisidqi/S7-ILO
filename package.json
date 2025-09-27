@@ -11,14 +11,11 @@
         "logging": "node enhanced-logging-api.js",
         "multi-plc": "node multi-plc-api-server.js",
         "advanced": "node advanced-example.js",
-        
         "db:setup": "sqlcmd -S localhost\\SQLEXPRESS -i Database/db.sql",
         "db:setup-multi": "sqlcmd -S localhost\\SQLEXPRESS -i Database/enhanced_multi_plc_schema.sql",
         "db:setup-enhanced": "sqlcmd -S localhost\\SQLEXPRESS -i Database/enhanced_multi_plc_schema.sql",
-        
         "db:test": "node -e \"const SqlTagManager = require('./SqlTagManager'); const mgr = new SqlTagManager(); mgr.testConnection().then(console.log).catch(console.error);\"",
         "db:test-multi": "node -e \"const MultiPLCManager = require('./MultiPLCManager'); const mgr = new MultiPLCManager({server: 'localhost\\\\SQLEXPRESS', database: 'IndolaktoWWTP'}); mgr.connectToDatabase().then(() => console.log('Multi-PLC DB connection successful')).catch(console.error);\"",
-        
         "pm2:start": "pm2 start ecosystem.config.js",
         "pm2:start-multi": "pm2 start ecosystem-multi-plc.config.js",
         "pm2:stop": "pm2 stop s7-client",
@@ -26,26 +23,23 @@
         "pm2:delete": "pm2 delete s7-client",
         "pm2:logs": "pm2 logs s7-client",
         "pm2:monit": "pm2 monit",
-        
         "examples:basic": "node examples/basic-example.js",
         "examples:enhanced": "node examples/enhanced-example.js",
         "examples:multi-plc": "node examples/multi-plc-example.js",
         "examples:logging": "node examples/logging-example.js",
-        
         "test": "npm run test:unit && npm run test:integration",
         "test:unit": "echo \"Unit tests not implemented yet\"",
         "test:integration": "echo \"Integration tests not implemented yet\"",
         "test:db": "npm run db:test-multi",
-        
         "docs:generate": "node scripts/generate-docs.js",
         "docs:serve": "node scripts/serve-docs.js",
-        
         "setup:complete": "npm run db:setup-enhanced && npm run db:test-multi",
         "demo:start": "npm run setup:complete && npm run multi-plc"
     },
     "dependencies": {
         "@st-one-io/nodes7": "^1.1.0",
-        "mssql": "^10.0.1"
+        "mssql": "^10.0.1",
+        "nodes7": "^0.3.18"
     },
     "devDependencies": {
         "nodemon": "^3.0.1"

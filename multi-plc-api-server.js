@@ -1,75 +1,7 @@
-// Configuration for the Multi-PLC system
-const multiPLCConfig = {
-    // SQL Server connection for PLC configuration
-    server: 'localhost\\SQLEXPRESS',
-    database: 'IndolaktoWWTP',
-    options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        enableArithAbort: true,
-        instanceName: 'SQLEXPRESS'
-    },
-    
-    // Multi-PLC settings
-    maxConcurrentConnections: 10,
-    connectionRetryInterval: 30000,
-    autoReconnectEnabled: true,
-    healthCheckInterval: 60000,
-    priorityBasedConnection: true,
-    
-    // Logging configuration
-    loggingConfig: {
-        enableDataLogging: true,
-        enableAlarmLogging: true,
-        enableEventLogging: true,
-        logInterval: 30000,
-        dataRetentionDays: 90,
-        alarmRetentionDays: 365,
-        eventRetentionDays: 30
-    }
-};
-
-// Start the Multi-PLC API Server
-const httpPort = process.env.PORT || 3000;
-const server = new MultiPLCAPIServer(multiPLCConfig, httpPort);
-
-// Graceful shutdown handlers
-process.on('SIGINT', () => {
-    console.log('\n🛑 Received SIGINT signal, shutting down gracefully...');
-    server.stop();
-});
-
-process.on('SIGTERM', () => {
-    console.log('\n🛑 Received SIGTERM signal, shutting down gracefully...');
-    server.stop();
-});
-
-// Handle unhandled promise rejections
-process.on('unhandledRejection', (reason, promise) => {
-    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
-    process.exit(1);
-});
-
-// Handle uncaught exceptions
-process.on('uncaughtException', (error) => {
-    console.error('❌ Uncaught Exception:', error);
-    process.exit(1);
-});
-
-// Start the server
-console.log('🚀 Starting Multi-PLC Management System...');
-console.log('📋 Database: IndolaktoWWTP');
-console.log('🔧 Features: Enhanced Schema, Engineering Units, Advanced Alarms, Multi-PLC Support');
-console.log('');
-
-server.start().catch(error => {
-    console.error('❌ Fatal error starting Multi-PLC API Server:', error.message);
-    process.exit(1);
-});
-
-module.exports = MultiPLCAPIServer;const MultiPLCManager = require('./MultiPLCManager');
+const MultiPLCManager = require('./MultiPLCManager');
 const http = require('http');
 const url = require('url');
+const sql = require('mssql');
 
 /**
  * Multi-PLC API Server - Enhanced for the new database schema
@@ -1070,3 +1002,74 @@ class MultiPLCAPIServer {
         process.exit(0);
     }
 }
+
+// Configuration for the Multi-PLC system
+const multiPLCConfig = {
+    // SQL Server connection for PLC configuration
+    server: 'localhost\\SQLEXPRESS',
+    database: 'IndolaktoWWTP',
+    options: {
+        encrypt: false,
+        trustServerCertificate: true,
+        enableArithAbort: true,
+        instanceName: 'SQLEXPRESS'
+    },
+    
+    // Multi-PLC settings
+    maxConcurrentConnections: 10,
+    connectionRetryInterval: 30000,
+    autoReconnectEnabled: true,
+    healthCheckInterval: 60000,
+    priorityBasedConnection: true,
+    
+    // Logging configuration
+    loggingConfig: {
+        enableDataLogging: true,
+        enableAlarmLogging: true,
+        enableEventLogging: true,
+        logInterval: 30000,
+        dataRetentionDays: 90,
+        alarmRetentionDays: 365,
+        eventRetentionDays: 30
+    }
+};
+
+// Start the Multi-PLC API Server
+const httpPort = process.env.PORT || 3000;
+const server = new MultiPLCAPIServer(multiPLCConfig, httpPort);
+
+// Graceful shutdown handlers
+process.on('SIGINT', () => {
+    console.log('\n🛑 Received SIGINT signal, shutting down gracefully...');
+    server.stop();
+});
+
+process.on('SIGTERM', () => {
+    console.log('\n🛑 Received SIGTERM signal, shutting down gracefully...');
+    server.stop();
+});
+
+// Handle unhandled promise rejections
+process.on('unhandledRejection', (reason, promise) => {
+    console.error('❌ Unhandled Rejection at:', promise, 'reason:', reason);
+    process.exit(1);
+});
+
+// Handle uncaught exceptions
+process.on('uncaughtException', (error) => {
+    console.error('❌ Uncaught Exception:', error);
+    process.exit(1);
+});
+
+// Start the server
+console.log('🚀 Starting Multi-PLC Management System...');
+console.log('📋 Database: IndolaktoWWTP');
+console.log('🔧 Features: Enhanced Schema, Engineering Units, Advanced Alarms, Multi-PLC Support');
+console.log('');
+
+server.start().catch(error => {
+    console.error('❌ Fatal error starting Multi-PLC API Server:', error.message);
+    process.exit(1);
+});
+
+module.exports = MultiPLCAPIServer;
