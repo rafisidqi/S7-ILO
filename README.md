@@ -1,553 +1,669 @@
-# S7 Standalone Client with SQL Server Integration
+# Enhanced S7 Multi-PLC Client with Advanced Database Integration
 
-A standalone Node.js client for communicating with Siemens S7 PLCs, now enhanced with SQL Server Express database integration for dynamic tag management. This client can run independently without Node-RED and is designed to work with PM2 for production deployments.
+A comprehensive Node.js solution for managing multiple Siemens S7 PLCs with advanced SQL Server integration, engineering units support, and enterprise-grade data logging capabilities.
 
-## 🚀 New Features
+## 🚀 New Features (v2.1.0)
 
-- **SQL Server Integration**: Dynamic tag loading from SQL Server Express database
-- **Enhanced Data Processing**: Tag metadata, scaling factors, and alarm limits
-- **Alarm Management**: Real-time alarm monitoring and acknowledgment
-- **Tag Grouping**: Organize tags by functional groups
-- **Database CRUD**: Add, update, and delete tags through API
-- **Auto-refresh**: Automatic tag list updates from database
+- **🏭 Multi-PLC Management**: Dynamic connection management for multiple PLCs
+- **📊 Enhanced Database Schema**: Complete redesign with engineering units support
+- **⚡ Engineering Units**: Real-time conversion between raw PLC values and engineering units
+- **🚨 Advanced Alarm System**: Comprehensive alarm management with hysteresis
+- **📈 Data Logging**: Enterprise-grade historical data logging and retention
+- **📋 Dynamic Configuration**: Database-driven PLC and tag configuration
+- **🔧 Enhanced API**: RESTful API for complete system management
+- **📱 Modern Dashboard**: Real-time monitoring with responsive web interface
 
-## Features
+## 📁 Project Structure
 
-- **Standalone Operation**: No Node-RED dependency
-- **Event-Driven**: Built on EventEmitter for reactive programming
-- **Cyclic Reading**: Automatically reads PLC variables at configurable intervals
-- **Variable Writing**: Write single or multiple variables to the PLC
-- **SQL Database**: Store and manage tag configurations in SQL Server
-- **HTTP API**: Enhanced REST API with database operations
-- **PM2 Ready**: Production-ready with PM2 process management
-- **Error Handling**: Comprehensive error handling and reconnection logic
-
-## Installation
-
-1. **Clone or create the project directory:**
-```bash
-mkdir s7-standalone-client
-cd s7-standalone-client
+```
+s7-multi-plc-client/
+├── Database/
+│   └── enhanced_multi_plc_schema.sql    # Complete database schema
+├── MultiPLCManager.js                   # Core multi-PLC management
+├── multi-plc-api-server.js             # HTTP API server
+├── EnhancedS7ClientWithLogging.js      # Enhanced S7 client
+├── SqlTagManager.js                     # Tag management system
+├── SqlDataLogger.js                     # Data logging system
+├── EngineeringUnitsUtils.js             # Engineering units utilities
+├── examples/                            # Usage examples
+├── docs/                               # Documentation
+└── README.md                           # This file
 ```
 
-2. **Install dependencies:**
+## 🛠️ Installation
+
+### Prerequisites
+
+- **Node.js** (v14.0.0 or higher)
+- **SQL Server Express** (2019 or higher recommended)
+- **Windows** (for SQL Server Express)
+
+### Quick Setup
+
+1. **Clone and install:**
 ```bash
+git clone <repository-url>
+cd s7-multi-plc-client
 npm install
 ```
 
-3. **Install SQL Server Express** (if not already installed)
-4. **Set up the database:**
+2. **Set up the enhanced database:**
 ```bash
-npm run db:setup
+npm run db:setup-enhanced
 ```
 
-5. **Install PM2 globally (optional, for production):**
+3. **Test database connection:**
 ```bash
-npm install -g pm2
+npm run db:test-multi
 ```
 
-## Database Setup
-
-### SQL Server Express Setup
-
-1. **Install SQL Server Express** from Microsoft
-2. **Run the database setup script:**
+4. **Start the multi-PLC system:**
 ```bash
-sqlcmd -S localhost\SQLEXPRESS -i database-setup.sql
+npm run multi-plc
 ```
 
-3. **Or manually create the database:**
-   - Create database named `PLCTags`
-   - Run the provided SQL script to create tables and sample data
+5. **Access the dashboard:**
+   - Open: http://localhost:3000
+   - API Documentation: http://localhost:3000/api
 
-### Database Schema
+## 🗄️ Enhanced Database Schema
 
-The `Tags` table structure:
+The new database schema supports comprehensive multi-PLC management:
+
+### Core Tables
+
+| Table | Purpose |
+|-------|---------|
+| `PLCConnections` | PLC configuration and connection details |
+| `PLCConnectionStatus` | Real-time PLC connection status |
+| `Tags` | Enhanced tag definitions with engineering units |
+| `DataHistory` | Historical data with raw and EU values |
+| `AlarmHistory` | Comprehensive alarm tracking |
+| `EventHistory` | System and user events |
+| `DataSummaryHourly` | Hourly data aggregations |
+| `DataSummaryDaily` | Daily data summaries |
+
+### Key Features
+
+- **Engineering Units**: Complete raw-to-EU conversion support
+- **Multi-PLC Support**: Tags linked to specific PLCs
+- **Enhanced Alarms**: Advanced alarm configuration with priorities
+- **Data Retention**: Configurable retention policies
+- **Performance Optimization**: Indexed for high-performance queries
+- **Audit Trail**: Complete change tracking
+
+## 📊 Engineering Units Support
+
+### Automatic Conversion
+
+```javascript
+// Raw PLC value: 16384 (0-32767 range)
+// Automatically converted to: 50.0 °C (0-100 °C range)
+
+const tag = {
+    name: 'Temperature_1',
+    addr: 'DB1,REAL0',
+    rawMin: 0,
+    rawMax: 32767,
+    euMin: 0,
+    euMax: 100,
+    engineeringUnits: '°C',
+    decimalPlaces: 1
+};
+```
+
+### Supported Scaling Types
+
+- **Linear**: Standard linear scaling
+- **Square Root**: For flow measurements
+- **Polynomial**: Custom polynomial scaling
+- **Lookup Table**: Point-to-point interpolation
+
+### Standard Sensor Presets
+
+```javascript
+const temperatureTag = EngineeringUnitsUtils.createStandardScaling('temperature_4_20ma', {
+    tempMin: -20,
+    tempMax: 150
+});
+
+const pressureTag = EngineeringUnitsUtils.createStandardScaling('pressure_4_20ma', {
+    pressureMax: 10
+});
+```
+
+## 🏭 Multi-PLC Configuration
+
+### Adding PLCs via API
+
+```bash
+curl -X POST http://localhost:3000/api/plc/add \
+  -H "Content-Type: application/json" \
+  -d '{
+    "name": "WWTP_New_PLC",
+    "description": "New WWTP Control PLC",
+    "address": "192.168.1.15",
+    "port": 102,
+    "rack": 0,
+    "slot": 2,
+    "location": "Building C",
+    "department": "Operations",
+    "systemType": "WWTP_Secondary",
+    "priority": 2,
+    "autoConnect": true
+  }'
+```
+
+### Database Configuration
+
+PLCs are stored in the `PLCConnections` table with full configuration:
+
 ```sql
-CREATE TABLE Tags (
-    TagID int IDENTITY(1,1) PRIMARY KEY,
-    TagName nvarchar(100) NOT NULL UNIQUE,
-    TagAddress nvarchar(50) NOT NULL,
-    TagType nvarchar(20) DEFAULT 'REAL',
-    Description nvarchar(255),
-    Enabled bit DEFAULT 1,
-    GroupName nvarchar(50) DEFAULT 'Default',
-    ScalingFactor float DEFAULT 1.0,
-    Units nvarchar(20),
-    MinValue float,
-    MaxValue float,
-    AlarmHigh float,
-    AlarmLow float,
-    CreatedDate datetime2 DEFAULT GETDATE(),
-    ModifiedDate datetime2 DEFAULT GETDATE()
+-- Sample PLC configuration
+INSERT INTO PLCConnections (
+    PLCName, PLCDescription, IPAddress, Port, Rack, Slot,
+    Location, Department, SystemType, Priority, AutoConnect
+) VALUES (
+    'WWTP_Main_PLC', 'Main WWTP Control PLC', '192.168.1.10', 102, 0, 2,
+    'Control Room A', 'Operations', 'WWTP_Primary', 1, 1
 );
 ```
 
-## Configuration
+## 🏷️ Enhanced Tag Management
 
-### Enhanced S7 Configuration with SQL
+### Adding Tags with Engineering Units
+
+```bash
+curl -X POST http://localhost:3000/api/tags/add \
+  -H "Content-Type: application/json" \
+  -d '{
+    "plcName": "WWTP_Main_PLC",
+    "tags": [
+      {
+        "name": "Tank_Level",
+        "addr": "DB1,REAL0",
+        "type": "REAL",
+        "description": "Main tank level sensor",
+        "group": "Level_Sensors",
+        "rawMin": 0,
+        "rawMax": 32767,
+        "euMin": 0,
+        "euMax": 5.5,
+        "units": "m",
+        "decimalPlaces": 2,
+        "alarmHigh": 5.0,
+        "alarmLow": 0.5,
+        "alarmEnabled": true,
+        "loggingEnabled": true
+      }
+    ]
+  }'
+```
+
+### Tag Features
+
+- **PLC Association**: Each tag linked to specific PLC
+- **Engineering Units**: Automatic raw-to-EU conversion
+- **Alarm Limits**: High, Low, HighHigh, LowLow with hysteresis
+- **Data Logging**: Configurable logging rates and retention
+- **Validation**: Custom validation rules support
+
+## 🚨 Advanced Alarm System
+
+### Alarm Configuration
 
 ```javascript
-const config = {
-    // S7 PLC Configuration
-    transport: 'iso-on-tcp',
+const alarmConfig = {
+    enabled: true,
+    priority: 3,              // 1=Critical, 5=Info
+    deadband: 1.0,           // Hysteresis to prevent oscillation
+    limits: {
+        high: 80.0,          // High alarm
+        low: 20.0,           // Low alarm
+        highHigh: 95.0,      // Critical high
+        lowLow: 10.0         // Critical low
+    }
+};
+```
+
+### Alarm Features
+
+- **Hysteresis**: Prevents alarm oscillation
+- **Priorities**: 5-level priority system
+- **Auto-acknowledgment**: Configurable acknowledgment
+- **Alarm Groups**: Logical grouping for flood detection
+- **Historical Tracking**: Complete alarm lifecycle logging
+
+## 📈 Data Logging & Analytics
+
+### Historical Data Query
+
+```bash
+# Get historical data for specific tag
+curl "http://localhost:3000/api/data/historical?plc=WWTP_Main_PLC&tag=Tank_Level&start=2024-01-01T00:00:00Z&end=2024-01-02T00:00:00Z&limit=1000"
+
+# Export multi-PLC data to CSV
+curl "http://localhost:3000/api/data/export?plcs=WWTP_Main_PLC,WWTP_Secondary_PLC&format=csv&start=2024-01-01T00:00:00Z"
+```
+
+### Data Features
+
+- **Dual Values**: Both raw and engineering unit values stored
+- **Quality Tracking**: OPC-style quality codes
+- **Compression**: Automatic data compression for long-term storage
+- **Summarization**: Hourly and daily data summaries
+- **Export**: CSV and JSON export capabilities
+
+## 🌐 RESTful API
+
+### System Management
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/system/status` | GET | Complete system status |
+| `/api/system/report` | GET | Generate system reports |
+| `/api/plcs/status` | GET | All PLC statuses |
+| `/api/plc/connect?plc=NAME` | POST | Connect to specific PLC |
+
+### Data Operations
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/data/all` | GET | Data from all PLCs |
+| `/api/data/historical` | GET | Historical data query |
+| `/api/write` | POST | Write values to PLCs |
+| `/api/alarms/history` | GET | Alarm history |
+
+### Configuration
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/plc/add` | POST | Add new PLC |
+| `/api/tags/add` | POST | Add tags to PLC |
+| `/api/config/refresh` | POST | Refresh configurations |
+
+## 📱 Web Dashboard
+
+The included web dashboard provides:
+
+- **Real-time Monitoring**: Live PLC data with engineering units
+- **System Overview**: Connection status and statistics
+- **Alarm Management**: Active alarms and acknowledgment
+- **Historical Trends**: Data visualization and analysis
+- **Configuration**: PLC and tag management interface
+
+Access at: http://localhost:3000
+
+## 🏃‍♂️ Usage Examples
+
+### Basic Multi-PLC Setup
+
+```javascript
+const MultiPLCManager = require('./MultiPLCManager');
+
+const manager = new MultiPLCManager({
+    server: 'localhost\\SQLEXPRESS',
+    database: 'IndolaktoWWTP',
+    maxConcurrentConnections: 10,
+    autoReconnectEnabled: true
+});
+
+// Initialize and connect to all configured PLCs
+await manager.initialize();
+
+// Get data from all PLCs
+const allData = manager.getAllPLCData();
+console.log('Multi-PLC Data:', allData);
+```
+
+### Enhanced S7 Client with Logging
+
+```javascript
+const EnhancedS7ClientWithLogging = require('./EnhancedS7ClientWithLogging');
+
+const client = new EnhancedS7ClientWithLogging({
+    // S7 Configuration
     address: '192.168.1.10',
     port: 102,
     rack: 0,
     slot: 2,
     cycletime: 1000,
-    timeout: 2000,
-    connmode: 'rack-slot',
-
-    // SQL Server Configuration
+    
+    // SQL Configuration
     sqlConfig: {
         server: 'localhost\\SQLEXPRESS',
-        database: 'PLCTags',
-        tagTable: 'Tags',
-        cacheRefreshInterval: 30000,  // 30 seconds
-        enableAutoRefresh: true,
-        options: {
-            encrypt: false,
-            trustServerCertificate: true,
-            enableArithAbort: true,
-            instanceName: 'SQLEXPRESS'
-        }
+        database: 'IndolaktoWWTP'
+    },
+    
+    // Logging Configuration
+    loggingConfig: {
+        enableDataLogging: true,
+        enableAlarmLogging: true,
+        logInterval: 30000,
+        dataRetentionDays: 90
     }
-};
-```
-
-### Authentication Options
-
-**Windows Authentication (Default):**
-```javascript
-sqlConfig: {
-    server: 'localhost\\SQLEXPRESS',
-    database: 'PLCTags',
-    // No user/password needed for Windows Authentication
-}
-```
-
-**SQL Server Authentication:**
-```javascript
-sqlConfig: {
-    server: 'localhost\\SQLEXPRESS',
-    database: 'PLCTags',
-    user: 'your_username',
-    password: 'your_password'
-}
-```
-
-## Usage Examples
-
-### Basic Enhanced Client
-
-```javascript
-const EnhancedS7Client = require('./EnhancedS7Client');
-
-const client = new EnhancedS7Client(config);
-
-// Event handlers
-client.on('initialized', () => {
-    console.log('Enhanced S7 Client initialized');
 });
 
+// Event handlers
 client.on('enhanced_data', (data) => {
     Object.entries(data).forEach(([tagName, tagInfo]) => {
-        console.log(`${tagName}: ${tagInfo.value}${tagInfo.metadata?.units || ''}`);
+        console.log(`${tagName}: ${tagInfo.formattedValue} ${tagInfo.units}`);
     });
 });
 
 client.on('alarm', (alarm) => {
-    console.log(`ALARM ${alarm.type}: ${alarm.tagName} = ${alarm.value}`);
+    console.log(`🚨 ALARM: ${alarm.tagName} = ${alarm.value} ${alarm.units}`);
 });
 
-// Initialize (connects to both SQL and PLC)
+// Initialize with full logging
 await client.initialize();
 ```
 
-### Running Examples
-
-1. **Basic SQL Integration:**
-```bash
-npm run sql
-```
-
-2. **Enhanced HTTP API Server:**
-```bash
-npm run sql-api
-```
-
-3. **Test Database Connection:**
-```bash
-npm run db:test
-```
-
-## Enhanced HTTP API
-
-The enhanced API includes all previous endpoints plus:
-
-### Database Operations
-- `GET /api/tags` - Get all tags with metadata
-- `GET /api/groups` - Get tag groups
-- `GET /api/group?group=Motors` - Get tags by group
-- `POST /api/tag` - Add/update tag in database
-- `DELETE /api/tag?name=TagName` - Delete tag from database
-- `POST /api/sql/refresh` - Refresh tags from database
-- `GET /api/sql/test` - Test database connection
-
-### Enhanced Data
-- `GET /api/enhanced-data` - Get PLC data with scaling and metadata
-- `GET /api/alarms` - Get alarm information
-- `POST /api/alarms/acknowledge` - Acknowledge alarms
-
-### Example API Calls
-
-**Get enhanced data:**
-```bash
-curl http://localhost:3000/api/enhanced-data
-```
-
-**Add a new tag:**
-```bash
-curl -X POST http://localhost:3000/api/tag \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "New_Temperature",
-    "addr": "DB1,REAL100",
-    "type": "REAL",
-    "description": "New temperature sensor",
-    "group": "Sensors",
-    "units": "°C",
-    "limits": {
-      "min": -40,
-      "max": 120,
-      "alarmHigh": 80,
-      "alarmLow": 5
-    }
-  }'
-```
-
-**Get tags by group:**
-```bash
-curl http://localhost:3000/api/group?group=Motors
-```
-
-## Tag Management
-
-### Adding Tags Programmatically
+### Engineering Units Conversion
 
 ```javascript
-await client.saveTag({
-    name: 'Motor1_Speed',
-    addr: 'DB1,REAL4',
-    type: 'REAL',
-    description: 'Motor 1 Speed',
-    group: 'Motors',
-    scaling: 1.0,
-    units: 'RPM',
-    limits: {
-        min: 0,
-        max: 3000,
-        alarmHigh: 2800,
-        alarmLow: 100
-    }
-});
-```
+const EngineeringUnitsUtils = require('./EngineeringUnitsUtils');
 
-### Working with Groups
+// Manual conversion
+const scaling = { rawMin: 0, rawMax: 32767, euMin: 0, euMax: 100 };
+const euValue = EngineeringUnitsUtils.rawToEu(16384, scaling);
+console.log(`EU Value: ${euValue}%`); // Output: EU Value: 50%
 
-```javascript
-// Get all groups
-const groups = client.getTagGroups();
-
-// Get tags in a specific group
-const motorTags =# S7 Standalone Client
-
-A standalone Node.js client for communicating with Siemens S7 PLCs, extracted from the node-red-contrib-s7 project. This client can run independently without Node-RED and is designed to work with PM2 for production deployments.
-
-## Features
-
-- **Standalone Operation**: No Node-RED dependency
-- **Event-Driven**: Built on EventEmitter for reactive programming
-- **Cyclic Reading**: Automatically reads PLC variables at configurable intervals
-- **Variable Writing**: Write single or multiple variables to the PLC
-- **HTTP API**: Optional REST API for external integration
-- **PM2 Ready**: Production-ready with PM2 process management
-- **Error Handling**: Comprehensive error handling and reconnection logic
-
-## Installation
-
-1. **Clone or create the project directory:**
-```bash
-mkdir s7-standalone-client
-cd s7-standalone-client
-```
-
-2. **Install dependencies:**
-```bash
-npm install
-```
-
-3. **Install PM2 globally (optional, for production):**
-```bash
-npm install -g pm2
-```
-
-## Configuration
-
-### Basic S7 Configuration
-
-```javascript
-const config = {
-    transport: 'iso-on-tcp',        // Transport type
-    address: '192.168.1.10',        // PLC IP address
-    port: 102,                      // S7 port (usually 102)
-    rack: 0,                        // PLC rack number
-    slot: 2,                        // PLC slot number
-    cycletime: 1000,                // Read cycle time in milliseconds
-    timeout: 2000,                  // Connection timeout
-    connmode: 'rack-slot',          // Connection mode: 'rack-slot' or 'tsap'
-    variables: [                    // Variables to monitor
-        { name: 'DB1_BOOL1', addr: 'DB1,X0.0' },
-        { name: 'DB1_INT1', addr: 'DB1,INT2' },
-        { name: 'DB1_REAL1', addr: 'DB1,REAL4' }
-    ]
+// Create complete EU object
+const tagMetadata = {
+    rawMin: 0, rawMax: 32767, euMin: -20, euMax: 150,
+    engineeringUnits: '°C', decimalPlaces: 1
 };
+const euObject = EngineeringUnitsUtils.createEuObject(16384, tagMetadata);
+console.log(euObject.formattedValue); // Output: "65.0 °C"
 ```
 
-### Variable Addressing
+## 📊 Performance Monitoring
 
-The client uses the same addressing scheme as the original Node-RED module:
+### System Statistics
 
-| Address | Description | Data Type |
-|---------|-------------|-----------|
-| `DB1,X0.0` | Bit 0 of byte 0 in DB1 | Boolean |
-| `DB1,B1` | Byte 1 in DB1 | Number (0-255) |
-| `DB1,INT2` | 16-bit signed integer at byte 2 | Number |
-| `DB1,REAL4` | 32-bit float at byte 4 | Number |
-| `DB1,WORD8` | 16-bit unsigned integer at byte 8 | Number |
-| `M0.0` | Memory bit 0.0 | Boolean |
-| `I1.0` | Input bit 1.0 | Boolean |
-| `Q2.0` | Output bit 2.0 | Boolean |
-
-## Usage Examples
-
-### Basic Usage
-
-```javascript
-const S7Client = require('./S7Client');
-
-const client = new S7Client(config);
-
-// Event handlers
-client.on('connected', () => {
-    console.log('Connected to PLC');
-});
-
-client.on('data', (values) => {
-    console.log('Current values:', values);
-});
-
-client.on('variable_changed', (change) => {
-    console.log(`${change.key} = ${change.value}`);
-});
-
-// Start connection
-await client.connect();
-
-// Write variables
-await client.writeVariable('DB1_BOOL1', true);
-await client.writeVariables({
-    'DB1_INT1': 12345,
-    'DB1_REAL1': 3.14159
-});
-```
-
-### Running with PM2
-
-1. **Start the application:**
 ```bash
-npm run pm2:start
+# Get comprehensive system statistics
+curl http://localhost:3000/api/system/statistics
 ```
 
-2. **Monitor the application:**
+Returns detailed metrics including:
+- Connection statistics per PLC
+- Data logging rates and quality
+- Alarm frequency and response times
+- Database performance metrics
+- Memory and CPU usage
+
+### Health Monitoring
+
+The system includes built-in health monitoring:
+
+- **Connection Health**: Automatic reconnection attempts
+- **Data Quality**: Quality percentage tracking
+- **Performance Metrics**: Response time monitoring
+- **Resource Usage**: Memory and CPU tracking
+- **Error Tracking**: Comprehensive error logging
+
+## 🔧 Configuration Management
+
+### Database-Driven Configuration
+
+All PLC and tag configurations are stored in the database, enabling:
+
+- **Dynamic Updates**: Changes without restart
+- **Version Control**: Configuration change tracking
+- **Backup/Restore**: Easy configuration backup
+- **Multi-Environment**: Different configs per environment
+
+### Configuration Scripts
+
 ```bash
+# Set up complete database schema
+npm run db:setup-enhanced
+
+# Test database connectivity
+npm run db:test-multi
+
+# Run with development settings
+npm run dev
+
+# Production deployment
+npm run pm2:start-multi
+```
+
+## 🚀 Production Deployment
+
+### PM2 Process Management
+
+```bash
+# Start with PM2
+npm run pm2:start-multi
+
+# Monitor processes
 npm run pm2:monit
-```
-
-3. **View logs:**
-```bash
-npm run pm2:logs
-```
-
-4. **Stop the application:**
-```bash
-npm run pm2:stop
-```
-
-## API Events
-
-The S7Client emits the following events:
-
-### Connection Events
-- `connected` - Emitted when successfully connected to PLC
-- `disconnected` - Emitted when disconnected from PLC
-- `status` - Emitted when connection status changes
-
-### Data Events
-- `data` - Emitted with all variable values on each cycle
-- `data_changed` - Emitted when any variable value changes
-- `variable_changed` - Emitted when a specific variable changes
-
-### Error Events
-- `error` - Emitted when an error occurs
-
-## HTTP API (Advanced Example)
-
-The advanced example includes a built-in HTTP server with REST API:
-
-### Endpoints
-
-- `GET /api/status` - Get connection status
-- `GET /api/data` - Get all current data
-- `GET /api/variables` - Get configured variables
-- `GET /api/read?variable=NAME` - Read specific variable
-- `POST /api/write` - Write variable(s)
-- `GET/POST /api/cycle-time` - Get/Set cycle time
-
-### Example API Calls
-
-**Read all data:**
-```bash
-curl http://localhost:3000/api/data
-```
-
-**Read specific variable:**
-```bash
-curl http://localhost:3000/api/read?variable=DB1_BOOL1
-```
-
-**Write single variable:**
-```bash
-curl -X POST http://localhost:3000/api/write \
-  -H "Content-Type: application/json" \
-  -d '{"variable": "DB1_BOOL1", "value": true}'
-```
-
-**Write multiple variables:**
-```bash
-curl -X POST http://localhost:3000/api/write \
-  -H "Content-Type: application/json" \
-  -d '{"variables": {"DB1_BOOL1": true, "DB1_INT1": 12345}}'
-```
-
-## PM2 Configuration
-
-The included `ecosystem.config.js` provides:
-
-- **Process Management**: Auto-restart, memory monitoring
-- **Logging**: Separate error, output, and combined logs
-- **Scheduling**: Optional daily restart at 2 AM
-- **Environment Variables**: Development and production environments
-- **Resource Limits**: Memory limits and Node.js arguments
-
-### PM2 Commands
-
-```bash
-# Start application
-pm2 start ecosystem.config.js
-
-# Start in production mode
-pm2 start ecosystem.config.js --env production
-
-# Monitor
-pm2 monit
 
 # View logs
-pm2 logs s7-client
+npm run pm2:logs
 
-# Restart
-pm2 restart s7-client
-
-# Stop
-pm2 stop s7-client
-
-# Delete
-pm2 delete s7-client
+# Restart services
+npm run pm2:restart
 ```
 
-## Error Handling
+### Database Optimization
 
-The client includes comprehensive error handling:
+For production environments:
 
-- **Connection Errors**: Automatic reconnection attempts
-- **Read/Write Errors**: Proper error propagation and logging
-- **Timeout Handling**: Configurable timeouts for operations
-- **Graceful Shutdown**: Clean disconnection on process termination
+1. **Indexing**: Ensure proper indexing on timestamp columns
+2. **Partitioning**: Consider table partitioning for large datasets
+3. **Maintenance**: Regular database maintenance and cleanup
+4. **Backup**: Automated backup strategies
 
-## Production Deployment
+### Security Considerations
 
-1. **Setup directories:**
-```bash
-mkdir -p logs
-```
+- **Database Security**: Use SQL Server authentication
+- **Network Security**: Configure firewall rules
+- **API Security**: Implement authentication if needed
+- **Data Encryption**: Enable TLS for database connections
 
-2. **Configure your PLC connection** in the configuration object
-
-3. **Start with PM2:**
-```bash
-pm2 start ecosystem.config.js --env production
-pm2 save
-pm2 startup
-```
-
-4. **Monitor and maintain:**
-```bash
-pm2 monit
-pm2 logs s7-client
-```
-
-## Troubleshooting
+## 🔍 Troubleshooting
 
 ### Common Issues
 
-1. **Connection Failed**
-   - Verify PLC IP address and port
-   - Check network connectivity
-   - Ensure PLC allows PUT/GET access
-   - Verify rack/slot configuration
+**PLC Connection Failed:**
+```bash
+# Check PLC configuration
+curl http://localhost:3000/api/plcs/status
 
-2. **Variable Not Found**
-   - Check variable address format
-   - Verify variable exists in PLC
-   - Ensure DB is not optimized (S7-1200/1500)
+# Test specific PLC connection
+curl -X POST "http://localhost:3000/api/plc/connect?plc=WWTP_Main_PLC"
+```
 
-3. **Write Errors**
-   - Verify variable is writable
-   - Check data type compatibility
-   - Ensure PLC is not in STOP mode
+**Database Connection Issues:**
+```bash
+# Test database connection
+npm run db:test-multi
+
+# Check SQL Server service
+services.msc -> SQL Server (SQLEXPRESS)
+```
+
+**Tag Data Not Logging:**
+```bash
+# Check logging status
+curl http://localhost:3000/api/logging/status
+
+# Enable logging if disabled
+curl -X POST http://localhost:3000/api/logging/enable
+```
 
 ### Debug Mode
 
-Enable verbose logging by setting environment variable:
+Enable verbose logging:
 ```bash
-DEBUG=s7-client node example.js
+DEBUG=s7-multi-plc:* npm run multi-plc
 ```
 
-## License
+### Log Files
 
-This project is derived from node-red-contrib-s7, which is licensed under GPL-3.0+. 
+Check log files for detailed error information:
+- Application logs: `logs/multi-plc.log`
+- Error logs: `logs/error.log`
+- Database logs: SQL Server error logs
 
-## Contributing
+## 📚 API Documentation
+
+### Complete API Reference
+
+Visit http://localhost:3000/api for interactive API documentation.
+
+### Example API Calls
+
+**System Status:**
+```bash
+curl http://localhost:3000/api/system/status
+```
+
+**Add PLC:**
+```bash
+curl -X POST http://localhost:3000/api/plc/add \
+  -H "Content-Type: application/json" \
+  -d '{"name": "NEW_PLC", "address": "192.168.1.20"}'
+```
+
+**Write Value:**
+```bash
+curl -X POST http://localhost:3000/api/write \
+  -H "Content-Type: application/json" \
+  -d '{"plc": "WWTP_Main_PLC", "tag": "Setpoint_1", "value": 75.5}'
+```
+
+**Export Data:**
+```bash
+curl "http://localhost:3000/api/data/export?format=csv&plcs=WWTP_Main_PLC&start=2024-01-01T00:00:00Z"
+```
+
+## 🧪 Testing
+
+### Unit Tests
+```bash
+npm run test:unit
+```
+
+### Integration Tests
+```bash
+npm run test:integration
+```
+
+### Database Tests
+```bash
+npm run test:db
+```
+
+## 📈 Roadmap
+
+### Planned Features
+
+- **Advanced Analytics**: Machine learning integration
+- **Mobile App**: React Native mobile application
+- **OEE Calculations**: Overall Equipment Effectiveness
+- **Report Generation**: Automated PDF reports
+- **Cloud Integration**: Azure IoT Hub connectivity
+- **Docker Support**: Containerized deployment
+- **GraphQL API**: Alternative API interface
+- **Real-time Notifications**: WebSocket support
+
+### Version History
+
+- **v2.1.0**: Multi-PLC support with enhanced database schema
+- **v2.0.0**: Engineering units and advanced logging
+- **v1.5.0**: Enhanced S7 client with SQL integration
+- **v1.0.0**: Basic S7 client with simple logging
+
+## 🤝 Contributing
 
 1. Fork the repository
-2. Create a feature branch
-3. Commit your changes
-4. Push to the branch
-5. Create a Pull Request
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit your changes (`git commit -m 'Add amazing feature'`)
+4. Push to the branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
 
-## Support
+### Development Setup
 
-For issues related to the S7 protocol implementation, refer to the original [@st-one-io/nodes7](https://www.npmjs.com/package/@st-one-io/nodes7) package documentation.
+```bash
+git clone <repository-url>
+cd s7-multi-plc-client
+npm install
+npm run db:setup-enhanced
+npm run dev
+```
 
-For PLC-specific configuration, consult your Siemens documentation for your specific PLC model.
+### Code Style
+
+- Use ESLint configuration
+- Follow JavaScript Standard Style
+- Comment complex functions
+- Write unit tests for new features
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## 🆘 Support
+
+- **Documentation**: Check `/docs` folder for detailed guides
+- **Issues**: Use GitHub Issues for bug reports
+- **Discussions**: GitHub Discussions for questions
+- **Email**: support@yourcompany.com
+
+## 🙏 Acknowledgments
+
+- **@st-one-io/nodes7**: S7 communication library
+- **Microsoft SQL Server**: Database platform
+- **Node.js Community**: Runtime environment
+- **Industrial Automation Community**: Feedback and testing
+
+## 📋 Quick Reference
+
+### Essential Commands
+
+```bash
+# Setup
+npm install
+npm run db:setup-enhanced
+
+# Development
+npm run dev
+npm run multi-plc
+
+# Production
+npm run pm2:start-multi
+npm run pm2:monit
+
+# Testing
+npm run db:test-multi
+npm run test
+
+# Maintenance
+npm run pm2:logs
+npm run pm2:restart
+```
+
+### Key Files
+
+- `MultiPLCManager.js` - Core multi-PLC management
+- `multi-plc-api-server.js` - HTTP API server
+- `Database/enhanced_multi_plc_schema.sql` - Database schema
+- `package.json` - Dependencies and scripts
+
+### Important URLs
+
+- Dashboard: http://localhost:3000
+- API Docs: http://localhost:3000/api
+- System Status: http://localhost:3000/api/system/status
+- PLC Status: http://localhost:3000/api/plcs/status
+
+---
+
+**🏭 Industrial Automation Made Simple with Multi-PLC Support!**
+
+For more information, visit the [project documentation](docs/) or contact the development team.
