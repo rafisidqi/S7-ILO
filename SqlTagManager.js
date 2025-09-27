@@ -12,13 +12,14 @@ class SqlTagManager extends EventEmitter {
         
         this.config = {
             // SQL Server connection settings
-            server: 'localhost\\SQLEXPRESS',
+            server: 'localhost\\MSSQLSERVER',
             database: 'IndolaktoWWTP',  // Updated for multi-PLC schema
             options: {
-                encrypt: false,
-                trustServerCertificate: true,
-                enableArithAbort: true,
-                instanceName: 'SQLEXPRESS'
+                //encrypt: false,
+                //trustServerCertificate: true,
+                trustedConnection: true,
+                //enableArithAbort: true,
+                //instanceName: 'MSSQLSERVER'
             },
             // Table configuration - updated for new multi-PLC schema
             tagTable: 'Tags',

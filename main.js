@@ -1,4 +1,4 @@
-const MultiPLCManager = require('MultiPLCManager');
+const MultiPLCManager = require('./MultiPLCManager');
 
 /**
  * Complete Multi-PLC System Example
@@ -8,13 +8,14 @@ const MultiPLCManager = require('MultiPLCManager');
 // Configuration for the Multi-PLC system
 const config = {
     // SQL Server connection
-    server: 'localhost\\SQLEXPRESS',
+    server: 'localhost',
     database: 'IndolaktoWWTP',
     options: {
         encrypt: false,
         trustServerCertificate: true,
+        trustedConnection: true,
         enableArithAbort: true,
-        instanceName: 'SQLEXPRESS'
+        instanceName: 'MSSQLSERVER'
     },
     
     // Multi-PLC settings
