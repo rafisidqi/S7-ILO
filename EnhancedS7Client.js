@@ -116,10 +116,15 @@ class EnhancedS7Client extends S7Client {
 
             // Reinitialize item group if PLC is connected
             if (this.connected && this.itemGroup) {
-                this.itemGroup.removeAllItems();
+                // Just update the translation callback with new variables
+                this.itemGroup.setTranslationCB(k => this._vars[k]);
                 
+                // If you need to add new items, create new item group
                 const varKeys = Object.keys(this._vars);
                 if (varKeys.length > 0) {
+                    // Only recreate if needed
+                    this.itemGroup = new (require('@st-one-io/nodes7')).S7ItemGroup(this.endpoint);
+                    this.itemGroup.setTranslationCB(k => this._vars[k]);
                     this.itemGroup.addItems(varKeys);
                 }
             }

@@ -656,6 +656,162 @@ BEGIN
 END
 GO
 
+-- Function to convert raw value to engineering units
+IF EXISTS (SELECT * FROM sys.objects WHERE name = 'fn_RawToEu' AND type = 'FN')
+    DROP FUNCTION dbo.fn_RawToEu;
+GO
+
+CREATE FUNCTION dbo.fn_RawToEu(@TagName nvarchar(100), @RawValue float)
+RETURNS float
+AS
+BEGIN
+    DECLARE @EuValue float;
+    DECLARE @RawMin float, @RawMax float, @EuMin float, @EuMax float;
+    DECLARE @ScalingType nvarchar(20);
+    
+    -- Get scaling parameters for the tag
+    SELECT 
+        @RawMin = RawMin, 
+        @RawMax = RawMax, 
+        @EuMin = EuMin, 
+        @EuMax = EuMax,
+        @ScalingType = ISNULL(ScalingType, 'LINEAR')
+    FROM Tags 
+    WHERE TagName = @TagName AND Enabled = 1;
+    
+    -- If tag not found or no scaling parameters, return raw value
+    IF @RawMin IS NULL OR @RawMax IS NULL OR @EuMin IS NULL OR @EuMax IS NULL
+    BEGIN
+        RETURN @RawValue;
+    END
+    
+    -- Handle different scaling types
+    IF @ScalingType = 'LINEAR'
+    BEGIN
+        -- Prevent division by zero
+        IF @RawMax = @RawMin
+            SET @EuValue = @EuMin;
+        ELSE
+        BEGIN
+            -- Linear scaling: EU = EuMin + (Raw - RawMin) * (EuMax - EuMin) / (RawMax - RawMin)
+            SET @EuValue = @EuMin + (@RawValue - @RawMin) * (@EuMax - @EuMin) / (@RawMax - @RawMin);
+        END
+    END
+    ELSE IF @ScalingType = 'SQRT'
+    BEGIN
+        -- Square root scaling for flow measurements
+        DECLARE @NormalizedValue float = (@RawValue - @RawMin) / (@RawMax - @RawMin);
+        SET @EuValue = @EuMin + SQRT(ABS(@NormalizedValue)) * (@EuMax - @EuMin);
+    END
+    ELSE
+    BEGIN
+        -- Default to linear scaling for unknown types
+        SET @EuValue = @EuMin + (@RawValue - @RawMin) * (@EuMax - @EuMin) / (@RawMax - @RawMin);
+    END
+    
+    RETURN @EuValue;
+END
+GO
+
+-- Enhanced procedure to log data with engineering units
+IF EXISTS (SELECT * FROM sys.procedures WHERE name = 'sp_LogDataWithEU')
+    DROP PROCEDURE sp_LogDataWithEU;
+GO
+
+CREATE PROCEDURE sp_LogDataWithEU
+    @TagName nvarchar(100),
+    @RawValue float,
+    @EuValue float = NULL,
+    @Quality int = 192,
+    @LogType nvarchar(20) = 'PERIODIC',
+    @AutoCalculateEU bit = 1
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @ShouldLog bit = 1;
+    DECLARE @ChangeThreshold float;
+    DECLARE @LastEuValue float;
+    DECLARE @MaxFrequency int;
+    DECLARE @RecentLogCount int;
+    DECLARE @CalculatedEuValue float = @EuValue;
+
+    BEGIN TRY
+        -- Get tag configuration
+        SELECT 
+            @ChangeThreshold = COALESCE(lc.ChangeThreshold, t.ChangeThreshold, 0.01),
+            @MaxFrequency = COALESCE(lc.MaxLogFrequency, t.MaxLogRate, 60),
+            @ShouldLog = CASE WHEN t.LoggingEnabled = 1 AND COALESCE(lc.EnableLogging, 1) = 1 THEN 1 ELSE 0 END
+        FROM Tags t
+        LEFT JOIN LoggingConfiguration lc ON t.TagName = lc.TagName
+        WHERE t.TagName = @TagName;
+
+        -- Calculate EU value if not provided and auto-calculation is enabled
+        IF @CalculatedEuValue IS NULL AND @AutoCalculateEU = 1
+        BEGIN
+            SELECT @CalculatedEuValue = dbo.fn_RawToEu(@TagName, @RawValue);
+        END
+        
+        -- Use raw value if EU calculation failed
+        IF @CalculatedEuValue IS NULL
+            SET @CalculatedEuValue = @RawValue;
+
+        -- If no configuration found, use defaults
+        IF @ShouldLog IS NULL
+        BEGIN
+            SET @ShouldLog = 1;
+            SET @ChangeThreshold = 0.01;
+            SET @MaxFrequency = 60;
+        END
+
+        -- Check frequency limits for periodic logging
+        IF @ShouldLog = 1 AND @LogType = 'PERIODIC'
+        BEGIN
+            SELECT @RecentLogCount = COUNT(*)
+            FROM DataHistory 
+            WHERE TagName = @TagName 
+              AND Timestamp > DATEADD(minute, -1, GETDATE());
+
+            IF @RecentLogCount >= @MaxFrequency
+                SET @ShouldLog = 0;
+        END
+
+        -- Check for significant change if LogOnChange is enabled
+        IF @ShouldLog = 1 AND @LogType IN ('CHANGE', 'PERIODIC')
+        BEGIN
+            SELECT TOP 1 @LastEuValue = EuValue 
+            FROM DataHistory 
+            WHERE TagName = @TagName 
+            ORDER BY Timestamp DESC;
+
+            IF @LastEuValue IS NOT NULL AND ABS(@CalculatedEuValue - @LastEuValue) < @ChangeThreshold AND @LogType <> 'MANUAL'
+                SET @ShouldLog = 0;
+        END
+
+        -- Log the data if all checks pass
+        IF @ShouldLog = 1
+        BEGIN
+            INSERT INTO DataHistory (TagName, RawValue, EuValue, Quality, LogType, Timestamp)
+            VALUES (@TagName, @RawValue, @CalculatedEuValue, @Quality, @LogType, GETDATE());
+            
+            SELECT SCOPE_IDENTITY() as LogID, 1 as Logged, @CalculatedEuValue as CalculatedEuValue;
+        END
+        ELSE
+        BEGIN
+            SELECT NULL as LogID, 0 as Logged, @CalculatedEuValue as CalculatedEuValue;
+        END
+        
+    END TRY
+    BEGIN CATCH
+        -- Log error
+        INSERT INTO EventHistory (EventType, EventCategory, EventMessage, TagName, Source)
+        VALUES ('LOGGING_ERROR', 'ERROR', 'Failed to log data for ' + @TagName + ': ' + ERROR_MESSAGE(), @TagName, 'sp_LogDataWithEU');
+        
+        THROW;
+    END CATCH
+END
+GO
+
 -- Procedure to update PLC connection status
 IF EXISTS (SELECT * FROM sys.procedures WHERE name = 'sp_UpdatePLCStatus')
     DROP PROCEDURE sp_UpdatePLCStatus;
@@ -871,6 +1027,7 @@ CREATE PROCEDURE sp_GetPLCConfiguration
     @PLCName nvarchar(100) = NULL,
     @EnabledOnly bit = 1
 AS
+
 BEGIN
     SET NOCOUNT ON;
     
@@ -880,6 +1037,7 @@ BEGIN
         plc.Transport,
         plc.IPAddress,
         plc.Port,
+        plc.Enabled,       
         plc.Rack,
         plc.Slot,
         plc.ConnectionMode,

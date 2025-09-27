@@ -146,8 +146,7 @@ class MultiPLCManager extends EventEmitter {
         try {
             console.log('📋 Loading PLC configurations...');
             
-            const result = await this.connectionPool.request()
-                .execute('sp_GetPLCConfiguration');
+            const result = await this.connectionPool.request().execute('sp_GetPLCConfiguration');
             
             this.plcConfigurations.clear();
             
