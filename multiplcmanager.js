@@ -109,14 +109,15 @@ class MultiPLCManager extends EventEmitter {
                 user: this.config.user,
                 password: this.config.password,
                 server: this.config.server,
+                driver: "msnodesqlv8",
                 database: this.config.database,
-                // pool: {
-                //     max: 20,
-                //     min: 0,
-                //     idleTimeoutMillis: 30000
-                // },
-                options: this.config.options,
-                driver: "msnodesqlv8"
+                pool: {
+                     max: 20,
+                     min: 0,
+                     idleTimeoutMillis: 30000
+                },
+                options: this.config.options
+
             };
 
             // Use Windows Authentication if no user/password provided

@@ -8,7 +8,7 @@ const MultiPLCManager = require('./MultiPLCManager');
 // Configuration for the Multi-PLC system
 const config = {
     // SQL Server connection
-    server: 'DESKTOP-8TEG5I3',
+    server: 'localhost',
     database: 'IndolaktoWWTP',
     options: {
         //encrypt: false,
