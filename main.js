@@ -1,3 +1,4 @@
+//const { connect } = require('mssql/msnodesqlv8');
 const MultiPLCManager = require('./MultiPLCManager');
 
 /**
@@ -7,16 +8,15 @@ const MultiPLCManager = require('./MultiPLCManager');
 
 // Configuration for the Multi-PLC system
 const config = {
-    // SQL Server connection
+    // SQL Server connection for PLC configuration
     server: 'localhost',
     database: 'IndolaktoWWTP',
     options: {
-        //encrypt: false,
-        //trustedConnection: true,
-        //trustServerCertificate: true,
-        //enableArithAbort: true,
-        instanceName: 'MSSQLSERVER'
+        trustServerCertificate: true,
+        trustedConnection: true,
+        //instanceName: 'MSSQLSERVER'
     },
+    driver: "msnodesqlv8",
     
     // Multi-PLC settings
     maxConcurrentConnections: 5,
@@ -30,8 +30,8 @@ const config = {
         enableDataLogging: true,
         enableAlarmLogging: true,
         enableEventLogging: true,
-        logInterval: 30000,
-        dataRetentionDays: 90,
+        logInterval: 5000,
+        dataRetentionDays: 3650,
         alarmRetentionDays: 365,
         eventRetentionDays: 30
     }
@@ -306,7 +306,7 @@ class MultiPLCExample {
             console.error('❌ Error during shutdown:', error);
         }
         
-        process.exit(0);
+        process.exit(1);
     }
 }
 

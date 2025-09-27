@@ -12,33 +12,35 @@ class MultiPLCManager extends EventEmitter {
         super();
         
         this.config = {
-            // SQL Server connection for PLC configuration
-            server: 'localhost\\SQLEXPRESS',
-            database: 'IndolaktoWWTP',
-            options: {
-                encrypt: false,
-                trustServerCertificate: true,
-                enableArithAbort: true,
-                instanceName: 'SQLEXPRESS'
-            },
+            // // SQL Server connection for PLC configuration
+            // server: 'localhost',
+            // database: 'IndolaktoWWTP',
+            // options: {
+            //     //encrypt: false,
+            //     trustServerCertificate: true,
+            //     //enableArithAbort: true,
+            //     trustedConnection: true,
+            //     //instanceName: 'MSSQLSERVER'
+            // },
+            // driver: "msnodesqlv8",
             
             // Multi-PLC settings
-            maxConcurrentConnections: 10,
-            connectionRetryInterval: 30000,    // 30 seconds
-            autoReconnectEnabled: true,
-            healthCheckInterval: 60000,        // 1 minute
-            priorityBasedConnection: true,
+            // maxConcurrentConnections: 10,
+            // connectionRetryInterval: 30000,    // 30 seconds
+            // autoReconnectEnabled: true,
+            // healthCheckInterval: 60000,        // 1 minute
+            // priorityBasedConnection: true,
             
-            // Logging configuration
-            loggingConfig: {
-                enableDataLogging: true,
-                enableAlarmLogging: true,
-                enableEventLogging: true,
-                logInterval: 30000,
-                dataRetentionDays: 90,
-                alarmRetentionDays: 365,
-                eventRetentionDays: 30
-            },
+            // // Logging configuration
+            // loggingConfig: {
+            //     enableDataLogging: true,
+            //     enableAlarmLogging: true,
+            //     enableEventLogging: true,
+            //     logInterval: 30000,
+            //     dataRetentionDays: 90,
+            //     alarmRetentionDays: 365,
+            //     eventRetentionDays: 30
+            // },
             
             ...config
         };
@@ -109,15 +111,13 @@ class MultiPLCManager extends EventEmitter {
                 user: this.config.user,
                 password: this.config.password,
                 server: this.config.server,
-                driver: "msnodesqlv8",
                 database: this.config.database,
                 pool: {
                      max: 20,
                      min: 0,
                      idleTimeoutMillis: 30000
                 },
-                options: this.config.options
-
+                options: this.config.options,
             };
 
             // Use Windows Authentication if no user/password provided
