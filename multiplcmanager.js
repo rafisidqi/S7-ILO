@@ -1,5 +1,5 @@
 const { EventEmitter } = require('events');
-const sql = require('mssql');
+const sql = require('mssql/msnodesqlv8');
 const EnhancedS7ClientWithLogging = require('./EnhancedS7ClientWithLogging');
 
 /**
@@ -110,12 +110,13 @@ class MultiPLCManager extends EventEmitter {
                 password: this.config.password,
                 server: this.config.server,
                 database: this.config.database,
-                pool: {
-                    max: 20,
-                    min: 0,
-                    idleTimeoutMillis: 30000
-                },
-                options: this.config.options
+                // pool: {
+                //     max: 20,
+                //     min: 0,
+                //     idleTimeoutMillis: 30000
+                // },
+                options: this.config.options,
+                driver: "msnodesqlv8"
             };
 
             // Use Windows Authentication if no user/password provided

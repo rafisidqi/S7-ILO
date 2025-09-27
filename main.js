@@ -8,13 +8,13 @@ const MultiPLCManager = require('./MultiPLCManager');
 // Configuration for the Multi-PLC system
 const config = {
     // SQL Server connection
-    server: 'localhost',
+    server: 'DESKTOP-8TEG5I3',
     database: 'IndolaktoWWTP',
     options: {
-        encrypt: false,
-        trustServerCertificate: true,
-        trustedConnection: true,
-        enableArithAbort: true,
+        //encrypt: false,
+        //trustedConnection: true,
+        //trustServerCertificate: true,
+        //enableArithAbort: true,
         instanceName: 'MSSQLSERVER'
     },
     

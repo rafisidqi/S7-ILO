@@ -1,7 +1,7 @@
 const MultiPLCManager = require('./MultiPLCManager');
 const http = require('http');
 const url = require('url');
-const sql = require('mssql');
+const sql = require('mssql/msnodesqlv8');
 
 /**
  * Multi-PLC API Server - Enhanced for the new database schema

@@ -1,5 +1,5 @@
 const { EventEmitter } = require('events');
-const sql = require('mssql');
+const sql = require('mssql/msnodesqlv8');
 
 /**
  * Enhanced SQL Tag Manager - Updated for Multi-PLC Schema
