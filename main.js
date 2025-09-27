@@ -1,4 +1,4 @@
-const MultiPLCManager = require('./MultiPLCManager');
+const MultiPLCManager = require('MultiPLCManager');
 
 /**
  * Complete Multi-PLC System Example
