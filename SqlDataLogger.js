@@ -1,73 +1,73 @@
-const { EventEmitter } = require('events');
 const sql = require('mssql/msnodesqlv8');
+const EventEmitter = require('events');
 
 /**
- * Enhanced SQL Data Logger - Works with the new enhanced database schema
- * Provides comprehensive logging with engineering units, advanced alarms, and performance optimization
+ * Enhanced SQL Data Logger with Multi-PLC Support
+ * Handles data logging with engineering units and PLCName support
  */
 class SqlDataLogger extends EventEmitter {
     constructor(config) {
         super();
         
         this.config = {
-            // Inherit connection from main SQL config
-            connectionPool: null,
+            // Database configuration
+            server: config.server || 'localhost\\SQLEXPRESS',
+            database: config.database || 'PLCTags',
             
-            // Enhanced logging tables (matching new schema)
-            dataTable: 'DataHistory',
-            alarmTable: 'AlarmHistory',
-            eventTable: 'EventHistory',
-            summaryHourlyTable: 'DataSummaryHourly',
-            summaryDailyTable: 'DataSummaryDaily',
-            loggingConfigTable: 'LoggingConfiguration',
+            // Table names
+            dataTable: config.dataTable || 'DataHistory',
+            alarmTable: config.alarmTable || 'AlarmHistory',
+            eventTable: config.eventTable || 'EventHistory',
+            summaryHourlyTable: config.summaryHourlyTable || 'DataSummaryHourly',
+            summaryDailyTable: config.summaryDailyTable || 'DataSummaryDaily',
             
             // Logging settings
-            enableDataLogging: true,
-            enableAlarmLogging: true,
-            enableEventLogging: true,
+            enableDataLogging: config.enableDataLogging !== false,
+            enableAlarmLogging: config.enableAlarmLogging !== false,
+            enableEventLogging: config.enableEventLogging !== false,
             
-            // Data logging options
-            logInterval: 30000,          // Flush buffers every 30 seconds
-            logOnChange: true,           // Log immediately when value changes
-            changeThreshold: 0.01,       // Minimum change to trigger logging (for REAL values)
-            maxBatchSize: 1000,          // Maximum records per batch insert
+            // Data retention
+            dataRetentionDays: config.dataRetentionDays || 90,
+            alarmRetentionDays: config.alarmRetentionDays || 180,
+            eventRetentionDays: config.eventRetentionDays || 365,
             
-            // Data retention settings
-            dataRetentionDays: 90,       // Keep data for 90 days
-            alarmRetentionDays: 365,     // Keep alarms for 1 year
-            eventRetentionDays: 30,      // Keep events for 30 days
+            // Performance settings
+            batchSize: config.batchSize || 100,
+            flushInterval: config.flushInterval || 30000,
             
-            // Compression settings
-            enableCompression: true,
-            compressionRatio: 10,        // Keep 1 in 10 records for long-term storage
-            compressionAfterDays: 7,     // Start compression after 7 days
-            
-            ...config
+            // Connection options
+            options: {
+                encrypt: false,
+                trustServerCertificate: true,
+                ...config.options
+            }
         };
 
-        this.connectionPool = this.config.connectionPool;
-        this.lastLoggedValues = new Map();
-        this.logBuffer = [];
-        this.alarmBuffer = [];
-        this.eventBuffer = [];
-        this.logTimer = null;
+        this.connectionPool = null;
         this.isInitialized = false;
-        
-        this.startPeriodicLogging();
+        this.dataBuffer = [];
+        this.flushTimer = null;
     }
 
     /**
-     * Initialize the enhanced data logger
+     * Initialize the SQL Data Logger
      */
     async initialize() {
-        if (!this.connectionPool) {
-            throw new Error('Connection pool not provided');
-        }
-
         try {
             console.log('Initializing Enhanced SQL Data Logger...');
-            
-            // Verify tables exist (they should be created by db.sql)
+
+            // Create connection pool
+            this.connectionPool = new sql.ConnectionPool({
+                server: this.config.server,
+                database: this.config.database,
+                ...this.config.options
+            });
+
+            // Connect to database
+            await this.connectionPool.connect();
+            console.log('Enhanced SQL Data Logger connected to database');
+
+            // Verify required tables exist
             await this.verifyTables();
             
             // Set up cleanup job
@@ -120,8 +120,9 @@ class SqlDataLogger extends EventEmitter {
 
     /**
      * Log PLC data values with engineering units using enhanced stored procedure
+     * Updated to include PLCName parameter
      */
-    async logData(tagName, euValue, rawValue = null, logType = 'PERIODIC', quality = 192) {
+    async logData(tagName, euValue, rawValue = null, logType = 'PERIODIC', quality = 192, plcName = null) {
         if (!this.config.enableDataLogging || !this.isInitialized) {
             return;
         }
@@ -135,6 +136,11 @@ class SqlDataLogger extends EventEmitter {
             request.input('Quality', sql.Int, quality);
             request.input('LogType', sql.NVarChar, logType);
             request.input('AutoCalculateEU', sql.Bit, rawValue !== null && euValue === null ? 1 : 0);
+            
+            // Add PLCName parameter - this is the key fix
+            if (plcName) {
+                request.input('PLCName', sql.NVarChar, plcName);
+            }
 
             const result = await request.execute('sp_LogDataWithEU');
             
@@ -145,6 +151,7 @@ class SqlDataLogger extends EventEmitter {
                     euValue: result.recordset[0].CalculatedEuValue || parseFloat(euValue) || 0,
                     quality,
                     logType,
+                    plcName,
                     timestamp: new Date()
                 });
             }
@@ -157,6 +164,7 @@ class SqlDataLogger extends EventEmitter {
 
     /**
      * Log multiple data points at once with enhanced support
+     * Updated to include PLCName for each data point
      */
     async logDataBatch(dataPoints) {
         if (!this.config.enableDataLogging || !this.isInitialized) {
@@ -173,7 +181,8 @@ class SqlDataLogger extends EventEmitter {
                         point.euValue || point.value,
                         point.rawValue,
                         point.logType || 'BATCH',
-                        point.quality || 192
+                        point.quality || 192,
+                        point.plcName  // Include PLCName in batch logging
                     )
                 );
             }
@@ -188,6 +197,7 @@ class SqlDataLogger extends EventEmitter {
 
     /**
      * Log alarm events using enhanced stored procedure
+     * Updated to include PLCName parameter
      */
     async logAlarm(alarmData) {
         if (!this.config.enableAlarmLogging || !this.isInitialized) {
@@ -205,6 +215,11 @@ class SqlDataLogger extends EventEmitter {
             request.input('AlarmMessage', sql.NVarChar, alarmData.message || `${alarmData.type} alarm on ${alarmData.tagName}`);
             request.input('Username', sql.NVarChar, alarmData.username || 'SYSTEM');
             request.input('SystemContext', sql.NVarChar, alarmData.systemContext || null);
+            
+            // Add PLCName parameter for alarm logging
+            if (alarmData.plcName) {
+                request.input('PLCName', sql.NVarChar, alarmData.plcName);
+            }
 
             const result = await request.execute('sp_LogAlarmWithEU');
             
@@ -223,7 +238,8 @@ class SqlDataLogger extends EventEmitter {
     }
 
     /**
-     * Log system events with enhanced context
+     * Log system events using enhanced stored procedure
+     * Updated to include PLCName parameter
      */
     async logEvent(eventData) {
         if (!this.config.enableEventLogging || !this.isInitialized) {
@@ -232,41 +248,30 @@ class SqlDataLogger extends EventEmitter {
 
         try {
             const request = this.connectionPool.request();
-            request.input('EventType', sql.NVarChar, eventData.type || 'GENERAL');
+            request.input('EventType', sql.NVarChar, eventData.type || 'SYSTEM');
             request.input('EventCategory', sql.NVarChar, eventData.category || 'INFO');
-            request.input('EventMessage', sql.NVarChar, eventData.message);
+            request.input('EventMessage', sql.NVarChar, eventData.message || '');
             request.input('TagName', sql.NVarChar, eventData.tagName || null);
-            request.input('OldValue', sql.Float, parseFloat(eventData.oldValue) || null);
-            request.input('NewValue', sql.Float, parseFloat(eventData.newValue) || null);
-            request.input('OldRawValue', sql.Float, parseFloat(eventData.oldRawValue) || null);
-            request.input('NewRawValue', sql.Float, parseFloat(eventData.newRawValue) || null);
             request.input('Username', sql.NVarChar, eventData.username || 'SYSTEM');
-            request.input('UserRole', sql.NVarChar, eventData.userRole || null);
-            request.input('ClientIP', sql.NVarChar, eventData.clientIP || null);
-            request.input('Source', sql.NVarChar, eventData.source || 'S7Client');
-            request.input('SourceVersion', sql.NVarChar, eventData.sourceVersion || null);
-            request.input('SessionID', sql.NVarChar, eventData.sessionId || null);
-            request.input('RequestID', sql.NVarChar, eventData.requestId || null);
-            request.input('AdditionalData', sql.NVarChar, eventData.additionalData ? JSON.stringify(eventData.additionalData) : null);
+            request.input('Source', sql.NVarChar, eventData.source || 'SqlDataLogger');
+            request.input('SourceVersion', sql.NVarChar, eventData.sourceVersion || '2.0.0');
+            request.input('AdditionalData', sql.NVarChar, 
+                eventData.additionalData ? JSON.stringify(eventData.additionalData) : null);
+            
+            // Add PLCName parameter for event logging
+            if (eventData.plcName) {
+                request.input('PLCName', sql.NVarChar, eventData.plcName);
+            }
 
-            await request.query(`
-                INSERT INTO ${this.config.eventTable} (
-                    EventType, EventCategory, EventMessage, TagName,
-                    OldValue, NewValue, OldRawValue, NewRawValue,
-                    Username, UserRole, ClientIP, Source, SourceVersion,
-                    SessionID, RequestID, AdditionalData, Timestamp
-                ) VALUES (
-                    @EventType, @EventCategory, @EventMessage, @TagName,
-                    @OldValue, @NewValue, @OldRawValue, @NewRawValue,
-                    @Username, @UserRole, @ClientIP, @Source, @SourceVersion,
-                    @SessionID, @RequestID, @AdditionalData, GETDATE()
-                )
-            `);
-
-            this.emit('event_logged', {
-                ...eventData,
-                timestamp: new Date()
-            });
+            const result = await request.execute('sp_LogEventWithEU');
+            
+            if (result.recordset && result.recordset[0] && result.recordset[0].Status === 'SUCCESS') {
+                this.emit('event_logged', {
+                    eventId: result.recordset[0].EventID,
+                    ...eventData,
+                    timestamp: new Date()
+                });
+            }
 
         } catch (error) {
             console.error('Error logging event:', error);
@@ -275,153 +280,81 @@ class SqlDataLogger extends EventEmitter {
     }
 
     /**
-     * Generate hourly summaries using enhanced stored procedure
+     * Get historical data for a specific tag with optional PLC filtering
      */
-    async generateHourlySummaries(hoursBack = 25, tagName = null) {
+    async getHistoricalData(tagName, startDate, endDate, limit = 1000, plcName = null) {
         try {
             const request = this.connectionPool.request();
-            request.input('HoursBack', sql.Int, hoursBack);
-            if (tagName) {
-                request.input('TagName', sql.NVarChar, tagName);
-            }
-
-            const result = await request.execute('sp_GenerateHourlySummaries');
+            request.input('TagName', sql.NVarChar, tagName);
+            request.input('StartDate', sql.DateTime, startDate);
+            request.input('EndDate', sql.DateTime, endDate);
+            request.input('Limit', sql.Int, limit);
             
-            if (result.recordset && result.recordset[0]) {
-                console.log(`Generated ${result.recordset[0].SummariesCreated} hourly summaries`);
-                this.emit('summaries_generated', {
-                    type: 'hourly',
-                    count: result.recordset[0].SummariesCreated,
-                    timestamp: new Date()
-                });
-            }
-
-        } catch (error) {
-            console.error('Error generating hourly summaries:', error);
-            this.emit('error', error);
-        }
-    }
-
-    /**
-     * Clean up old data using enhanced stored procedure
-     */
-    async cleanupOldData(options = {}) {
-        try {
-            const request = this.connectionPool.request();
-            request.input('DataRetentionDays', sql.Int, options.dataRetentionDays || this.config.dataRetentionDays);
-            request.input('AlarmRetentionDays', sql.Int, options.alarmRetentionDays || this.config.alarmRetentionDays);
-            request.input('EventRetentionDays', sql.Int, options.eventRetentionDays || this.config.eventRetentionDays);
-            request.input('SummaryRetentionDays', sql.Int, options.summaryRetentionDays || 1095);
-            request.input('DryRun', sql.Bit, options.dryRun || 0);
-
-            const result = await request.execute('sp_CleanupOldData');
+            let query = `
+                SELECT TOP (@Limit)
+                    TagName,
+                    RawValue,
+                    EuValue,
+                    Quality,
+                    LogType,
+                    Timestamp,
+                    PLCName
+                FROM ${this.config.dataTable}
+                WHERE TagName = @TagName
+                AND Timestamp BETWEEN @StartDate AND @EndDate
+            `;
             
-            if (result.recordset && result.recordset[0]) {
-                const cleanupInfo = result.recordset[0];
-                console.log(`Cleanup completed: ${JSON.stringify(cleanupInfo)}`);
-                
-                this.emit('cleanup_completed', {
-                    ...cleanupInfo,
-                    timestamp: new Date()
-                });
+            // Add PLCName filter if specified
+            if (plcName) {
+                request.input('PLCName', sql.NVarChar, plcName);
+                query += ' AND PLCName = @PLCName';
             }
+            
+            query += ' ORDER BY Timestamp DESC';
 
-        } catch (error) {
-            console.error('Error cleaning up old data:', error);
-            this.emit('error', error);
-        }
-    }
-
-    /**
-     * Get logged data for a specific tag and time range with EU values
-     */
-    async getLoggedData(tagName, startDate, endDate, limit = 1000) {
-        try {
-            const result = await this.connectionPool.request()
-                .input('tagName', sql.NVarChar, tagName)
-                .input('startDate', sql.DateTime2, startDate)
-                .input('endDate', sql.DateTime2, endDate)
-                .input('limit', sql.Int, limit)
-                .query(`
-                    SELECT TOP (@limit)
-                        dh.TagName,
-                        dh.RawValue,
-                        dh.EuValue,
-                        dh.Quality,
-                        dh.Timestamp,
-                        dh.LogType,
-                        t.EngineeringUnits,
-                        t.DecimalPlaces,
-                        CASE 
-                            WHEN dh.Quality = 192 THEN 'Good'
-                            WHEN dh.Quality >= 128 THEN 'Uncertain' 
-                            ELSE 'Bad'
-                        END as QualityText,
-                        CASE 
-                            WHEN t.DecimalPlaces IS NOT NULL AND dh.EuValue IS NOT NULL 
-                            THEN FORMAT(dh.EuValue, 'N' + CAST(t.DecimalPlaces as nvarchar(2)))
-                            ELSE CAST(dh.EuValue as nvarchar(50))
-                        END + ' ' + ISNULL(t.EngineeringUnits, '') as FormattedValue
-                    FROM ${this.config.dataTable} dh
-                    LEFT JOIN Tags t ON dh.TagName = t.TagName
-                    WHERE dh.TagName = @tagName
-                      AND dh.Timestamp BETWEEN @startDate AND @endDate
-                    ORDER BY dh.Timestamp DESC
-                `);
-
+            const result = await request.query(query);
             return result.recordset;
 
         } catch (error) {
-            console.error('Error getting logged data:', error);
+            console.error('Error getting historical data:', error);
             throw error;
         }
     }
 
     /**
-     * Get alarm history with enhanced information
+     * Get alarm history with optional PLC filtering
      */
-    async getAlarmHistory(tagName = null, limit = 100) {
+    async getAlarmHistory(startDate, endDate, limit = 100, plcName = null) {
         try {
+            const request = this.connectionPool.request();
+            request.input('StartDate', sql.DateTime, startDate);
+            request.input('EndDate', sql.DateTime, endDate);
+            request.input('Limit', sql.Int, limit);
+            
             let query = `
-                SELECT TOP (@limit)
-                    ah.AlarmID,
-                    ah.TagName,
-                    ah.AlarmType,
-                    ah.AlarmState,
-                    ah.CurrentValue,
-                    ah.LimitValue,
-                    ah.Deviation,
-                    ah.AlarmMessage,
-                    ah.Severity,
-                    ah.Priority,
-                    ah.ActiveTime,
-                    ah.AcknowledgedBy,
-                    ah.AcknowledgedAt,
-                    ah.ClearedAt,
-                    ah.DurationSeconds,
-                    ah.AlarmGroup,
-                    ah.OperatorComments,
-                    ah.Timestamp,
-                    t.Description,
-                    t.EngineeringUnits,
-                    t.GroupName,
-                    CASE 
-                        WHEN t.DecimalPlaces IS NOT NULL 
-                        THEN FORMAT(ah.CurrentValue, 'N' + CAST(t.DecimalPlaces as nvarchar(2)))
-                        ELSE CAST(ah.CurrentValue as nvarchar(50))
-                    END + ' ' + ISNULL(t.EngineeringUnits, '') as FormattedCurrentValue
-                FROM ${this.config.alarmTable} ah
-                LEFT JOIN Tags t ON ah.TagName = t.TagName
+                SELECT TOP (@Limit)
+                    AlarmID,
+                    TagName,
+                    AlarmType,
+                    AlarmState,
+                    CurrentValue,
+                    LimitValue,
+                    AlarmMessage,
+                    Timestamp,
+                    AcknowledgeTime,
+                    Username,
+                    PLCName
+                FROM ${this.config.alarmTable}
+                WHERE Timestamp BETWEEN @StartDate AND @EndDate
             `;
-
-            const request = this.connectionPool.request().input('limit', sql.Int, limit);
-
-            if (tagName) {
-                query += ' WHERE ah.TagName = @tagName';
-                request.input('tagName', sql.NVarChar, tagName);
+            
+            // Add PLCName filter if specified
+            if (plcName) {
+                request.input('PLCName', sql.NVarChar, plcName);
+                query += ' AND PLCName = @PLCName';
             }
-
-            query += ' ORDER BY ah.Timestamp DESC';
+            
+            query += ' ORDER BY Timestamp DESC';
 
             const result = await request.query(query);
             return result.recordset;
@@ -433,110 +366,7 @@ class SqlDataLogger extends EventEmitter {
     }
 
     /**
-     * Get system statistics using enhanced stored procedure
-     */
-    async getLoggingStats() {
-        try {
-            const result = await this.connectionPool.request().execute('sp_GetSystemStatistics');
-            
-            return {
-                systemOverview: result.recordsets[0] ? result.recordsets[0][0] : {},
-                dataLogging: result.recordsets[1] ? result.recordsets[1][0] : {},
-                alarms: result.recordsets[2] ? result.recordsets[2][0] : {},
-                topActiveTags: result.recordsets[3] || [],
-                topAlarmedTags: result.recordsets[4] || [],
-                recentEvents: result.recordsets[5] || [],
-                databaseSize: result.recordsets[6] || [],
-                buffers: {
-                    dataBuffer: this.logBuffer.length,
-                    alarmBuffer: this.alarmBuffer.length,
-                    eventBuffer: this.eventBuffer.length
-                }
-            };
-
-        } catch (error) {
-            console.error('Error getting logging stats:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * Acknowledge alarm in database
-     */
-    async acknowledgeAlarm(alarmId, username = 'SYSTEM', comments = null) {
-        try {
-            const result = await this.connectionPool.request()
-                .input('alarmId', sql.BigInt, alarmId)
-                .input('username', sql.NVarChar, username)
-                .input('acknowledgedAt', sql.DateTime2, new Date())
-                .input('comments', sql.NVarChar, comments)
-                .query(`
-                    UPDATE ${this.config.alarmTable}
-                    SET AlarmState = CASE 
-                            WHEN AlarmState = 'ACTIVE' THEN 'ACKNOWLEDGED' 
-                            ELSE AlarmState 
-                        END,
-                        AcknowledgedBy = @username,
-                        AcknowledgedAt = @acknowledgedAt,
-                        OperatorComments = ISNULL(OperatorComments + '; ', '') + ISNULL(@comments, 'Acknowledged via API')
-                    WHERE AlarmID = @alarmId
-                      AND AlarmState IN ('ACTIVE')
-                `);
-
-            if (result.rowsAffected[0] > 0) {
-                // Log acknowledgment event
-                await this.logEvent({
-                    type: 'ALARM_ACKNOWLEDGED',
-                    category: 'INFO',
-                    message: `Alarm ${alarmId} acknowledged by ${username}`,
-                    username: username,
-                    source: 'AlarmSystem',
-                    additionalData: { alarmId, comments }
-                });
-
-                return true;
-            }
-
-            return false;
-
-        } catch (error) {
-            console.error('Error acknowledging alarm:', error);
-            throw error;
-        }
-    }
-
-    /**
-     * Start periodic logging timer
-     */
-    startPeriodicLogging() {
-        if (this.logTimer) {
-            clearInterval(this.logTimer);
-        }
-
-        if (this.config.logInterval > 0) {
-            this.logTimer = setInterval(async () => {
-                try {
-                    // Generate summaries periodically
-                    await this.generateHourlySummaries(2); // Process last 2 hours
-                } catch (error) {
-                    console.error('Error in periodic logging:', error);
-                }
-            }, this.config.logInterval);
-        }
-    }
-
-    /**
-     * Stop periodic logging
-     */
-    stopPeriodicLogging() {
-        if (this.logTimer) {
-            clearInterval(this.logTimer);
-            this.logTimer = null;
-        }
-    }
-
-    /**
-     * Setup data cleanup job
+     * Set up automatic cleanup job for old data
      */
     setupCleanupJob() {
         // Run cleanup every 24 hours
@@ -544,145 +374,98 @@ class SqlDataLogger extends EventEmitter {
             try {
                 await this.cleanupOldData();
             } catch (error) {
-                console.error('Error in cleanup job:', error);
+                console.error('Error during automatic cleanup:', error);
             }
         }, 24 * 60 * 60 * 1000);
+
+        console.log('Automatic data cleanup job scheduled');
     }
 
     /**
-     * Force flush all logging buffers (enhanced version)
+     * Clean up old data based on retention policies
      */
-    async flushAllBuffers() {
-        console.log('Flushing all enhanced logging buffers...');
-        // For the enhanced version, most logging happens immediately via stored procedures
-        // This method is kept for compatibility
-        this.emit('buffers_flushed', {
-            timestamp: new Date(),
-            note: 'Enhanced logging uses immediate stored procedure calls'
-        });
-    }
-
-    /**
-     * Export data to CSV format with enhanced features
-     */
-    async exportDataToCSV(tagNames, startDate, endDate) {
+    async cleanupOldData() {
         try {
-            const tagList = Array.isArray(tagNames) ? tagNames.join("','") : tagNames;
+            const request = this.connectionPool.request();
             
-            const result = await this.connectionPool.request()
-                .input('startDate', sql.DateTime2, startDate)
-                .input('endDate', sql.DateTime2, endDate)
-                .query(`
-                    SELECT 
-                        dh.TagName,
-                        dh.EuValue as Value,
-                        dh.RawValue,
-                        dh.Quality,
-                        dh.Timestamp,
-                        dh.LogType,
-                        t.EngineeringUnits,
-                        t.Description,
-                        t.GroupName,
-                        CASE 
-                            WHEN dh.Quality = 192 THEN 'Good'
-                            WHEN dh.Quality >= 128 THEN 'Uncertain' 
-                            ELSE 'Bad'
-                        END as QualityText
-                    FROM ${this.config.dataTable} dh
-                    LEFT JOIN Tags t ON dh.TagName = t.TagName
-                    WHERE dh.TagName IN ('${tagList}')
-                      AND dh.Timestamp BETWEEN @startDate AND @endDate
-                    ORDER BY dh.TagName, dh.Timestamp
-                `);
+            // Cleanup old data
+            request.input('DataRetentionDays', sql.Int, this.config.dataRetentionDays);
+            await request.query(`
+                DELETE FROM ${this.config.dataTable}
+                WHERE Timestamp < DATEADD(day, -@DataRetentionDays, GETDATE())
+            `);
 
-            // Convert to CSV format with enhanced headers
-            const headers = [
-                'TagName', 'Value', 'RawValue', 'EngineeringUnits', 'Quality', 
-                'QualityText', 'Timestamp', 'LogType', 'Description', 'GroupName'
-            ];
-            const csvData = [headers.join(',')];
-            
-            result.recordset.forEach(row => {
-                const csvRow = [
-                    row.TagName,
-                    row.Value || '',
-                    row.RawValue || '',
-                    row.EngineeringUnits || '',
-                    row.Quality || '',
-                    row.QualityText || '',
-                    row.Timestamp ? row.Timestamp.toISOString() : '',
-                    row.LogType || '',
-                    row.Description || '',
-                    row.GroupName || ''
-                ];
-                csvData.push(csvRow.map(field => `"${field}"`).join(','));
-            });
+            // Cleanup old alarms
+            request.input('AlarmRetentionDays', sql.Int, this.config.alarmRetentionDays);
+            await request.query(`
+                DELETE FROM ${this.config.alarmTable}
+                WHERE Timestamp < DATEADD(day, -@AlarmRetentionDays, GETDATE())
+            `);
 
-            return csvData.join('\n');
+            // Cleanup old events
+            request.input('EventRetentionDays', sql.Int, this.config.eventRetentionDays);
+            await request.query(`
+                DELETE FROM ${this.config.eventTable}
+                WHERE Timestamp < DATEADD(day, -@EventRetentionDays, GETDATE())
+            `);
+
+            console.log('Database cleanup completed successfully');
+            this.emit('cleanup_completed');
 
         } catch (error) {
-            console.error('Error exporting data to CSV:', error);
+            console.error('Error during database cleanup:', error);
+            this.emit('cleanup_error', error);
+        }
+    }
+
+    /**
+     * Get logging statistics
+     */
+    async getLoggingStatistics() {
+        try {
+            const request = this.connectionPool.request();
+            
+            const result = await request.query(`
+                SELECT 
+                    (SELECT COUNT(*) FROM ${this.config.dataTable}) as TotalDataRecords,
+                    (SELECT COUNT(*) FROM ${this.config.alarmTable}) as TotalAlarmRecords,
+                    (SELECT COUNT(*) FROM ${this.config.eventTable}) as TotalEventRecords,
+                    (SELECT COUNT(*) FROM ${this.config.dataTable} WHERE Timestamp >= DATEADD(day, -1, GETDATE())) as DataRecordsLast24h,
+                    (SELECT COUNT(*) FROM ${this.config.alarmTable} WHERE Timestamp >= DATEADD(day, -1, GETDATE())) as AlarmRecordsLast24h,
+                    (SELECT COUNT(DISTINCT PLCName) FROM ${this.config.dataTable}) as ActivePLCs,
+                    (SELECT COUNT(DISTINCT TagName) FROM ${this.config.dataTable}) as ActiveTags
+            `);
+
+            return result.recordset[0];
+
+        } catch (error) {
+            console.error('Error getting logging statistics:', error);
             throw error;
         }
     }
 
     /**
-     * Get data availability for tags
+     * Disconnect from the database
      */
-    async getTagAvailability(tagNames, startDate, endDate) {
+    async disconnect() {
         try {
-            const tagList = Array.isArray(tagNames) ? tagNames.join("','") : tagNames;
-            
-            const result = await this.connectionPool.request()
-                .input('startDate', sql.DateTime2, startDate)
-                .input('endDate', sql.DateTime2, endDate)
-                .query(`
-                    SELECT 
-                        t.TagName,
-                        t.Description,
-                        t.EngineeringUnits,
-                        dbo.fn_CalculateTagAvailability(t.TagName, @startDate, @endDate) as AvailabilityPercent,
-                        COUNT(dh.LogID) as TotalRecords,
-                        COUNT(CASE WHEN dh.Quality = 192 THEN 1 END) as GoodQualityRecords,
-                        MIN(dh.Timestamp) as FirstRecord,
-                        MAX(dh.Timestamp) as LastRecord
-                    FROM Tags t
-                    LEFT JOIN ${this.config.dataTable} dh ON t.TagName = dh.TagName 
-                        AND dh.Timestamp BETWEEN @startDate AND @endDate
-                    WHERE t.TagName IN ('${tagList}')
-                      AND t.Enabled = 1
-                    GROUP BY t.TagName, t.Description, t.EngineeringUnits
-                    ORDER BY t.TagName
-                `);
+            if (this.flushTimer) {
+                clearInterval(this.flushTimer);
+                this.flushTimer = null;
+            }
 
-            return result.recordset;
+            if (this.connectionPool) {
+                await this.connectionPool.close();
+                this.connectionPool = null;
+            }
+
+            this.isInitialized = false;
+            console.log('Enhanced SQL Data Logger disconnected');
+            this.emit('disconnected');
 
         } catch (error) {
-            console.error('Error getting tag availability:', error);
-            throw error;
+            console.error('Error disconnecting Enhanced SQL Data Logger:', error);
         }
-    }
-
-    /**
-     * Shutdown the enhanced data logger
-     */
-    async shutdown() {
-        console.log('Shutting down Enhanced SQL Data Logger...');
-        
-        this.stopPeriodicLogging();
-        
-        // Log shutdown event
-        if (this.isInitialized) {
-            await this.logEvent({
-                type: 'LOGGER_SHUTDOWN',
-                category: 'INFO',
-                message: 'Enhanced SQL Data Logger shutting down',
-                source: 'SqlDataLogger'
-            });
-        }
-        
-        console.log('Enhanced SQL Data Logger shutdown complete');
-        this.emit('shutdown');
     }
 }
 
