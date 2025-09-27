@@ -330,12 +330,6 @@ process.on('unhandledRejection', (reason, promise) => {
     example.shutdown();
 });
 
-// Start the example
-console.log('🚀 Multi-PLC System Example Starting...');
-console.log('📋 Database: IndolaktoWWTP');
-console.log('🔧 Features: Dynamic PLC Management, Engineering Units, Advanced Logging');
-console.log('');
-
 example.run().catch(error => {
     console.error('❌ Fatal error in Multi-PLC example:', error);
     process.exit(1);

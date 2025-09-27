@@ -126,7 +126,7 @@ class MultiPLCManager extends EventEmitter {
             }
 
             this.connectionPool = await sql.connect(poolConfig);
-            console.log('✅ Connected to Multi-PLC database');
+            //console.log('✅ Connected to Multi-PLC database');
             
             // Log system startup event
             await this.logSystemEvent('SYSTEM_START', 'Multi-PLC Manager started', 'INFO');
@@ -201,8 +201,7 @@ class MultiPLCManager extends EventEmitter {
                     }
                 });
             }
-            
-            console.log(`📋 Loaded ${this.plcConfigurations.size} PLC configurations`);
+
             this.emit('configurations_loaded', { count: this.plcConfigurations.size });
             
         } catch (error) {
